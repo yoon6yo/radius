@@ -98,8 +98,9 @@ export class SignalClient {
 
   /** Saved device ids. Remembered and re-sent on every reconnect; presence needs the other side to save this device too. */
   setFriends(ids: readonly string[]): void {
+    const same = ids.length === this.friendIds.length && ids.every((id, i) => id === this.friendIds[i]);
     this.friendIds = [...ids];
-    if (this.status_ === "online") this.trySend({ t: "friends", ids: this.friendIds });
+    if (!same && this.status_ === "online") this.trySend({ t: "friends", ids: this.friendIds });
   }
 
   requestCode(): boolean {

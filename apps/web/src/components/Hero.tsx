@@ -69,9 +69,9 @@ export function Hero({ status, name, onRename }: { status: HeroStatus; name: str
               setInvalid(false);
             }}
             onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
-            className="h-10 min-w-0 flex-1 rounded-full bg-primary-foreground px-4 text-lg font-semibold text-foreground outline-none"
+            className="min-w-0 flex-1 border-b-2 border-primary-foreground/70 bg-transparent py-0.5 text-2xl font-bold tracking-tight text-primary-foreground outline-none focus:border-primary-foreground"
           />
-          <button type="submit" className="h-10 shrink-0 rounded-full bg-primary-foreground/20 px-4 text-sm font-semibold focus-visible:outline-primary-foreground">
+          <button type="submit" className="shrink-0 rounded-md px-2 py-2 text-sm font-semibold focus-visible:outline-primary-foreground">
             저장
           </button>
         </form>
@@ -87,9 +87,9 @@ export function Hero({ status, name, onRename }: { status: HeroStatus; name: str
                 setInvalid(false);
                 setEditing(true);
               }}
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary-foreground/15 focus-visible:outline-primary-foreground"
+              className="grid size-9 shrink-0 place-items-center rounded-md opacity-80 hover:opacity-100 focus-visible:outline-primary-foreground"
             >
-              <Pencil className="size-4" aria-hidden />
+              <Pencil className="size-[18px]" aria-hidden />
             </button>
           )}
         </p>

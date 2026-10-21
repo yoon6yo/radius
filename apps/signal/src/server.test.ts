@@ -219,4 +219,16 @@ describe("signal server", () => {
     b.c.send({ t: "rename", name: "푸른 고래" });
     expect((await a.c.next("peer")).peer).toEqual({ id: b.c.id, name: "푸른 고래" });
   });
+
+  it("ignores saved-device and pairing messages instead of dropping the connection", async () => {
+    const a = await login("A");
+    const b = await login("B");
+    await b.c.next("peer").catch(() => undefined);
+    a.c.send({ t: "friends", ids: [b.c.id] });
+    a.c.send({ t: "pair" });
+    a.c.send({ t: "join", code: "123456" });
+    a.c.send({ t: "signal", to: b.c.id, data: { ok: 1 } });
+    expect((await b.c.next("signal")).data).toEqual({ ok: 1 });
+    expect(a.c.ws.readyState).toBe(WebSocket.OPEN);
+  });
 });

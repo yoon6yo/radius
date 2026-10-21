@@ -191,6 +191,12 @@ export function startSignalServer(opts: SignalServerOptions): Promise<SignalServ
           if (!target) return send(conn, { t: "error", code: "unknown_peer" });
           return send(target, { t: "signal", from: conn.peer.id, data: msg.data });
         }
+        // Saved-device presence and code pairing only exist on the Workers hub; ignore them here so
+        // newer clients keep their connection instead of being dropped as malformed.
+        case "friends":
+        case "pair":
+        case "join":
+          return;
         default:
           return fail(conn, "bad_message");
       }
