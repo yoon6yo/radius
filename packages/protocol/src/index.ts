@@ -49,6 +49,8 @@ export function sanitizeName(raw: string): string | null {
   if (name.length === 0 || name.length > MAX_NAME_LENGTH) return null;
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+  // Bidi controls and zero-width characters let a name masquerade as another one.
+  if (/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/.test(name)) return null;
   return name;
 }
 

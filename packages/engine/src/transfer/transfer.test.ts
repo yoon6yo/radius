@@ -374,6 +374,24 @@ describe("transfer", () => {
     });
   });
 
+  it("interrupt while the accept prompt is open sends nothing and opens no sink file once it resolves", async () => {
+    const sent: TransferMsg[] = [];
+    const sink = new MemSink();
+    let decide!: (d: "accept") => void;
+    const r = new Receiver({
+      send: (m) => (sent.push(m), true),
+      sink,
+      onOffer: () => new Promise((res) => (decide = res)),
+    });
+    r.handleControl({ t: "offer", id: 1, files: [{ path: "a", size: 10 }] });
+    await tick();
+    r.interrupt();
+    decide("accept");
+    await tick();
+    expect(await r.result).toEqual({ status: "failed", reason: "link_lost" });
+    expect(sent).toEqual([]);
+  });
+
   it("interrupt keeps the receiver's staging (no sink abort) and ends the sender without a cancel", async () => {
     const sent: TransferMsg[] = [];
     const sink = new MemSink();

@@ -22,6 +22,11 @@ describe("sanitizeName", () => {
     expect(sanitizeName("x".repeat(33))).toBeNull();
     expect(sanitizeName("a\nb")).toBeNull();
   });
+  it("rejects bidi and zero-width characters", () => {
+    for (const c of ["\u202e", "\u2066", "\u200b", "\u200f", "\ufeff", "\u061c"]) {
+      expect(sanitizeName(`ab${c}cd`)).toBeNull();
+    }
+  });
 });
 
 describe("parseClientMsg", () => {

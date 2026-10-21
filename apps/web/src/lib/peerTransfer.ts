@@ -24,8 +24,8 @@ export interface PeerTransferOptions {
   /** Authenticated id of the remote peer; scopes resumable staging. */
   peerId: string;
   onView(v: TransferView): void;
-  /** Consent prompt for an incoming offer. */
-  ask(files: FileMeta[]): Promise<boolean>;
+  /** Consent prompt for an incoming offer; must resolve false and close the prompt once `signal` aborts. */
+  ask(files: FileMeta[], signal: AbortSignal): Promise<boolean>;
 }
 
 /** Glue between one PeerConnection and the transfer engine (one send + one receive at a time). */
@@ -33,6 +33,7 @@ export class PeerTransfer {
   private conn: PeerConnection | null = null;
   private sender: Sender | null = null;
   private receiver: Receiver | null = null;
+  private asking: AbortController | null = null;
   private readonly opts: PeerTransferOptions;
 
   constructor(opts: PeerTransferOptions) {
@@ -66,6 +67,7 @@ export class PeerTransfer {
 
   /** Terminal link state: end both transfers; receiver staging stays on disk for a resume. */
   interrupt(): void {
+    this.asking?.abort();
     this.sender?.interrupt();
     this.receiver?.interrupt();
   }
@@ -113,7 +115,11 @@ export class PeerTransfer {
         name = files.length === 1 ? safeName(files[0]!.path) : `${files.length} files`;
         paths = files.map((f) => f.path);
         if ((await freeBytes()) < total - resumedBytes) return "no_space";
-        if (!(await this.opts.ask(files))) return "declined";
+        const asking = (this.asking = new AbortController());
+        const ok = await this.opts.ask(files, asking.signal).finally(() => {
+          if (this.asking === asking) this.asking = null;
+        });
+        if (!ok) return "declined";
         view("active");
         return "accept";
       },

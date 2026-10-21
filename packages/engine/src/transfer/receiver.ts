@@ -148,6 +148,8 @@ export class Receiver {
       0,
     );
     const decision = await this.opts.onOffer(files, resumed);
+    // The link may have died while the user was deciding: nothing to answer or open.
+    if (this.finished) return;
     if (decision !== "accept") {
       this.opts.send({ t: "reject", id, reason: decision });
       // Declining a resume must not destroy the staged blocks.
