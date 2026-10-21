@@ -1,66 +1,51 @@
 import { useSignal } from "@/lib/useSignal";
 import { usePeers } from "@/lib/usePeer";
 import { AcceptDialog } from "@/components/AcceptDialog";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { DeviceCard } from "@/components/DeviceCard";
+import { HistoryList } from "@/components/HistoryList";
+import { Hero } from "@/components/Hero";
 
 export function App() {
   const signal = useSignal();
   const { status, peers, self } = signal;
-  const { links, connect, ping, sendFiles, offer, respond } = usePeers(signal);
+  const { links, connect, sendFiles, offer, respond, history } = usePeers(signal);
 
   return (
-    <main className="mx-auto max-w-md p-6">
-      <h1 className="text-2xl font-semibold">Radius</h1>
-      <p className="mt-1 text-sm text-neutral-500" data-testid="status">
+    <main className="relative mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-8 pt-[max(2.5rem,env(safe-area-inset-top))]">
+      <ThemeToggle />
+      <h1 className="text-[34px] font-bold leading-tight tracking-tight">Radius</h1>
+      <span hidden data-testid="status">
         {status}
         {self ? ` · ${self.name}` : ""}
+      </span>
+      <Hero status={status} name={self?.name} />
+
+      <h2 className="mb-2 mt-9 px-1 text-[13px] font-semibold text-muted-foreground">근처 기기</h2>
+      {peers.length === 0 ? (
+        <div className="rounded-[var(--radius)] bg-card px-6 py-10 text-center" data-testid="peers">
+          <p className="text-[17px] font-semibold">근처에 다른 기기가 없어요</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">같은 Wi‑Fi에서 다른 기기로 Radius를 열어 주세요.</p>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-3" data-testid="peers">
+          {peers.map((p) => (
+            <DeviceCard
+              key={p.id}
+              name={p.name}
+              link={links[p.id]}
+              onConnect={() => connect(p.id)}
+              onSend={(files) => sendFiles(p.id, files)}
+            />
+          ))}
+        </ul>
+      )}
+
+      <HistoryList entries={history} />
+
+      <p className="mt-4 hidden px-1 text-center text-[13px] text-muted-foreground [@media(hover:hover)]:block">
+        연결된 기기 위로 파일을 끌어다 놓으면 바로 보내요.
       </p>
-      <ul className="mt-6 space-y-2" data-testid="peers">
-        {peers.map((p) => {
-          const link = links[p.id];
-          return (
-            <li key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3">
-              <span className="flex-1">{p.name}</span>
-              <span className="text-xs text-neutral-500" data-testid={`link-${p.name}`}>
-                {link?.state ?? "idle"}
-              </span>
-              <span className="text-xs tabular-nums" data-testid={`pongs-${p.name}`}>
-                {link ? Object.keys(link.pongs).sort().map((k) => `${k}:${link.pongs[k]}`).join(" ") : ""}
-              </span>
-              <button className="text-sm underline" onClick={() => connect(p.id)}>
-                connect
-              </button>
-              <button className="text-sm underline" onClick={() => ping(p.id)}>
-                ping
-              </button>
-              <input
-                type="file"
-                multiple
-                data-testid={`file-${p.name}`}
-                className="w-24 text-xs"
-                onChange={(e) => {
-                  sendFiles(p.id, [...(e.target.files ?? [])]);
-                  e.target.value = "";
-                }}
-              />
-              <span className="text-xs tabular-nums" data-testid={`xfer-${p.name}`}>
-                {link?.transfer
-                  ? `${link.transfer.direction} ${link.transfer.status} ${link.transfer.done}/${link.transfer.total}`
-                  : ""}
-              </span>
-              {link?.transfer?.save && (
-                <button className="text-sm underline" data-testid={`save-${p.name}`} onClick={() => void link.transfer?.save?.()}>
-                  Save
-                </button>
-              )}
-              {link?.failure && (
-                <p role="alert" className="basis-full text-xs text-red-600" data-testid={`failure-${p.name}`}>
-                  {link.failure}
-                </p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
       <AcceptDialog offer={offer} onAnswer={respond} />
     </main>
   );

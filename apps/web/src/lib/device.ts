@@ -10,19 +10,14 @@ interface StoredIdentity {
   name: string;
 }
 
-const NAMES = {
-  ko: { adj: ["파란", "맑은", "고요한", "빠른", "푸른", "깊은"], noun: ["고래", "돌고래", "파도", "바다", "하늘", "물결"] },
-  en: { adj: ["Blue", "Calm", "Swift", "Clear", "Deep", "Bright"], noun: ["Whale", "Dolphin", "Wave", "Reef", "Breeze", "Tide"] },
-};
+const NAMES = { adj: ["파란", "맑은", "고요한", "빠른", "푸른", "깊은"], noun: ["고래", "돌고래", "파도", "바다", "하늘", "물결"] };
 
 function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)] as T;
 }
 
 function randomName(): string {
-  const ko = navigator.language.toLowerCase().startsWith("ko");
-  const set = ko ? NAMES.ko : NAMES.en;
-  return `${pick(set.adj)} ${pick(set.noun)}`;
+  return `${pick(NAMES.adj)} ${pick(NAMES.noun)}`;
 }
 
 function openDb(): Promise<IDBDatabase> {
