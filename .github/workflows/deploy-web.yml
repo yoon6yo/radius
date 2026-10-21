@@ -1,0 +1,36 @@
+name: deploy-web
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - apps/web/**
+      - packages/**
+      - pnpm-lock.yaml
+      - .github/workflows/deploy-web.yml
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VITE_SIGNAL_URL: wss://radius-signal.yoonie.workers.dev/ws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @radius/web build
+      # wrangler lives in the signal-worker package; the web config is passed explicitly.
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/signal-worker
+          command: deploy --config ../web/wrangler.toml
