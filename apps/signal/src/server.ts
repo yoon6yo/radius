@@ -17,9 +17,11 @@ export interface SignalServerOptions {
   port: number;
   /** Trust the last X-Forwarded-For hop as the client address. Only enable behind your own proxy. */
   trustProxy?: boolean;
-  /** When set, browser connections must come from one of these origins. */
+  /** Browser origins allowed to connect. Unset: same-origin only (Origin host must equal the Host header). */
   allowedOrigins?: readonly string[];
   maxRoomSize?: number;
+  /** Concurrent connections allowed per client address. Default 50. */
+  maxConnsPerIp?: number;
   authTimeoutMs?: number;
   heartbeatMs?: number;
 }
@@ -54,6 +56,17 @@ function clientIp(req: IncomingMessage, trustProxy: boolean): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
+/** Browsers always send Origin on WebSocket upgrades, so a missing one is a non-browser client. */
+function originAllowed(origin: string | undefined, host: string | undefined, allowed?: readonly string[]): boolean {
+  if (!origin) return true;
+  if (allowed) return allowed.includes(origin);
+  try {
+    return host !== undefined && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 function parsePublicKey(b64: string): { key: KeyObject; spki: Buffer } | null {
   const bytes = fromBase64Url(b64);
   if (!bytes || bytes.length > SPKI_P256_MAX) return null;
@@ -71,12 +84,16 @@ export function startSignalServer(opts: SignalServerOptions): Promise<SignalServ
   const maxRoomSize = opts.maxRoomSize ?? 50;
   const authTimeoutMs = opts.authTimeoutMs ?? 5_000;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
+  const maxConnsPerIp = opts.maxConnsPerIp ?? 50;
   const rooms = new Map<string, Map<string, Conn>>();
+  const conns = new Map<WebSocket, Conn>();
+  const connsPerIp = new Map<string, number>();
 
   const wss = new WebSocketServer({
     port: opts.port,
     maxPayload: MAX_PAYLOAD,
-    verifyClient: ({ origin }: { origin: string }) => !opts.allowedOrigins || opts.allowedOrigins.includes(origin),
+    verifyClient: ({ origin, req }: { origin: string; req: IncomingMessage }) =>
+      originAllowed(origin, req.headers.host, opts.allowedOrigins),
   });
 
   const send = (conn: Conn, msg: ServerMsg): void => {
@@ -116,12 +133,17 @@ export function startSignalServer(opts: SignalServerOptions): Promise<SignalServ
   };
 
   wss.on("connection", (ws, req) => {
+    const ip = clientIp(req, opts.trustProxy ?? false);
+    const open = connsPerIp.get(ip) ?? 0;
+    if (open >= maxConnsPerIp) return ws.close(CLOSE_POLICY, "too many connections");
+    connsPerIp.set(ip, open + 1);
     const conn: Conn = {
       ws,
-      roomKey: roomKeyFor(clientIp(req, opts.trustProxy ?? false)),
+      roomKey: roomKeyFor(ip),
       alive: true,
       window: { start: Date.now(), count: 0 },
     };
+    conns.set(ws, conn);
     const authTimer = setTimeout(() => {
       if (!conn.peer) ws.close(CLOSE_AUTH_TIMEOUT, "auth timeout");
     }, authTimeoutMs);
@@ -176,6 +198,10 @@ export function startSignalServer(opts: SignalServerOptions): Promise<SignalServ
 
     ws.on("close", () => {
       clearTimeout(authTimer);
+      conns.delete(ws);
+      const left = (connsPerIp.get(ip) ?? 1) - 1;
+      if (left <= 0) connsPerIp.delete(ip);
+      else connsPerIp.set(ip, left);
       const id = conn.peer?.id;
       if (!id) return;
       const room = rooms.get(conn.roomKey);
@@ -189,13 +215,12 @@ export function startSignalServer(opts: SignalServerOptions): Promise<SignalServ
   });
 
   const heartbeat = setInterval(() => {
-    for (const ws of wss.clients) {
-      const conn = [...rooms.values()].flatMap((r) => [...r.values()]).find((c) => c.ws === ws);
-      if (conn && !conn.alive) {
+    for (const [ws, conn] of conns) {
+      if (!conn.alive) {
         ws.terminate();
         continue;
       }
-      if (conn) conn.alive = false;
+      conn.alive = false;
       ws.ping();
     }
   }, heartbeatMs);

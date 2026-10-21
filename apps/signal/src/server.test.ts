@@ -173,6 +173,45 @@ describe("signal server", () => {
     expect((await c.next("error")).code).toBe("room_full");
   });
 
+  it("allows same-origin and non-browser clients, rejects cross-origin by default", async () => {
+    const same = await open({ origin: `http://127.0.0.1:${server.port}` });
+    same.ws.close();
+    const none = await open();
+    none.ws.close();
+    await expect(open({ origin: "https://evil.example" })).rejects.toThrow();
+    await expect(open({ origin: "not a url" })).rejects.toThrow();
+  });
+
+  it("limits concurrent connections per address", async () => {
+    const limited = await startSignalServer({ port: 0, trustProxy: true, maxConnsPerIp: 2 });
+    try {
+      const mk = () => new WebSocket(`ws://127.0.0.1:${limited.port}`, { headers: { "x-forwarded-for": "198.51.100.9" } });
+      const [a, b, c] = [mk(), mk(), mk()];
+      sockets.push(a, b, c);
+      const code = await new Promise<number>((r) => c.once("close", (code) => r(code)));
+      expect(code).toBe(1008);
+      b.close();
+      await new Promise((r) => b.once("close", r));
+      const d = mk();
+      sockets.push(d);
+      await new Promise((r, j) => (d.once("open", r), d.once("close", () => j(new Error("rejected")))));
+    } finally {
+      await limited.close();
+    }
+  });
+
+  it("terminates unresponsive connections even before authentication", async () => {
+    const hb = await startSignalServer({ port: 0, heartbeatMs: 50, authTimeoutMs: 10_000 });
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${hb.port}`, { autoPong: false });
+      sockets.push(ws);
+      const closed = new Promise<void>((r) => ws.once("close", () => r()));
+      await closed;
+    } finally {
+      await hb.close();
+    }
+  });
+
   it("propagates renames", async () => {
     const a = await login("A");
     const b = await login("B");
