@@ -4,7 +4,7 @@ import { usePeers } from "@/lib/usePeer";
 export function App() {
   const signal = useSignal();
   const { status, peers, self } = signal;
-  const { links, connect, ping } = usePeers(signal);
+  const { links, connect, ping, sendFiles } = usePeers(signal);
 
   return (
     <main className="mx-auto max-w-md p-6">
@@ -31,6 +31,21 @@ export function App() {
               <button className="text-sm underline" onClick={() => ping(p.id)}>
                 ping
               </button>
+              <input
+                type="file"
+                multiple
+                data-testid={`file-${p.name}`}
+                className="w-24 text-xs"
+                onChange={(e) => {
+                  sendFiles(p.id, [...(e.target.files ?? [])]);
+                  e.target.value = "";
+                }}
+              />
+              <span className="text-xs tabular-nums" data-testid={`xfer-${p.name}`}>
+                {link?.transfer
+                  ? `${link.transfer.direction} ${link.transfer.status} ${link.transfer.done}/${link.transfer.total}`
+                  : ""}
+              </span>
             </li>
           );
         })}

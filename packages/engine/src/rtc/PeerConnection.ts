@@ -3,6 +3,7 @@ import type { PeerConnectionOptions, PeerState, RtcSignal } from "./types";
 
 const DEFAULT_STUN = "stun:stun.l.google.com:19302";
 const CONTROL_ID = 0;
+const DATA_LOW_WATERMARK = 256 * 1024;
 
 function defaultRestartBackoff(attempt: number): number {
   return Math.min(10_000, 1000 * 2 ** attempt);
@@ -25,6 +26,7 @@ export class PeerConnection {
   private restartAttempt = 0;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private readyWaiters: (() => void)[] = [];
 
   constructor(opts: PeerConnectionOptions) {
     this.opts = opts;
@@ -54,6 +56,41 @@ export class PeerConnection {
   sendData(index: number, data: string | ArrayBuffer): boolean {
     const ch = this.data[index];
     return ch !== undefined && this.trySend(ch, data);
+  }
+
+  get dataChannelCount(): number {
+    return this.data.length;
+  }
+
+  isDataOpen(index: number): boolean {
+    return this.data[index]?.readyState === "open";
+  }
+
+  bufferedAmount(index: number): number {
+    return this.data[index]?.bufferedAmount ?? 0;
+  }
+
+  /** Resolves when the channel's send buffer is below its low threshold (or the channel closed). */
+  waitDrain(index: number): Promise<void> {
+    const ch = this.data[index];
+    if (!ch || ch.readyState !== "open" || ch.bufferedAmount <= ch.bufferedAmountLowThreshold) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const done = () => {
+        ch.removeEventListener("bufferedamountlow", done);
+        ch.removeEventListener("close", done);
+        resolve();
+      };
+      ch.addEventListener("bufferedamountlow", done);
+      ch.addEventListener("close", done);
+    });
+  }
+
+  /** Resolves once at least one data channel is open. */
+  waitReady(): Promise<void> {
+    if (this.data.some((c) => c.readyState === "open")) return Promise.resolve();
+    return new Promise((resolve) => this.readyWaiters.push(resolve));
   }
 
   /**
@@ -100,8 +137,12 @@ export class PeerConnection {
   ): RTCDataChannel {
     const ch = this.pc.createDataChannel(label, { negotiated: true, id, ordered: true });
     ch.binaryType = "arraybuffer";
+    if (id !== CONTROL_ID) ch.bufferedAmountLowThreshold = DATA_LOW_WATERMARK;
     ch.onmessage = (e: MessageEvent<string | ArrayBuffer>) => onMessage(e.data);
-    ch.onopen = () => this.refresh();
+    ch.onopen = () => {
+      this.readyWaiters.splice(0).forEach((r) => r());
+      this.refresh();
+    };
     // A negotiated channel cannot be reopened; losing one means the link is unusable.
     ch.onclose = () => this.setState("failed");
     return ch;

@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
+import { purgeTransfers } from "./exportOpfs";
+import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
 
 export interface PeerLink {
   state: PeerState;
   /** Echo replies received per channel: "c" = control, "0".. = data index. */
   pongs: Record<string, number>;
+  transfer: TransferView | null;
 }
 
 /** Dev-only: one PeerConnection per remote peer with a ping/pong echo over every channel. */
 export function usePeers(signal: SignalState) {
   const { self, status, sendSignal, setSignalHandler } = signal;
   const conns = useRef(new Map<string, PeerConnection>());
+  const xfers = useRef(new Map<string, PeerTransfer>());
   const [links, setLinks] = useState<Record<string, PeerLink>>({});
 
   const patch = useCallback((id: string, fn: (l: PeerLink) => PeerLink) => {
-    setLinks((all) => ({ ...all, [id]: fn(all[id] ?? { state: "connecting", pongs: {} }) }));
+    setLinks((all) => ({ ...all, [id]: fn(all[id] ?? { state: "connecting", pongs: {}, transfer: null }) }));
   }, []);
 
   const open = useCallback(
@@ -26,16 +30,31 @@ export function usePeers(signal: SignalState) {
       if (!self) return null;
       const pong = (key: string) =>
         patch(peerId, (l) => ({ ...l, pongs: { ...l.pongs, [key]: (l.pongs[key] ?? 0) + 1 } }));
+      const xfer = new PeerTransfer({
+        onView: (transfer) => patch(peerId, (l) => ({ ...l, transfer })),
+        ask: (files) => window.confirm(`Receive ${files.length} file(s) from ${peerId.slice(0, 8)}?`),
+      });
       const conn: PeerConnection = new PeerConnection({
         selfId: self.id,
         peerId,
         sendSignal: (data) => sendSignal(peerId, data),
         onState: (state) => patch(peerId, (l) => ({ ...l, state })),
-        onControl: (d) => (d === "ping" ? conn.sendControl("pong") : d === "pong" && pong("c")),
-        onData: (i, d) => (d === "ping" ? conn.sendData(i, "pong") : d === "pong" && pong(String(i))),
+        onControl: (d) => {
+          if (typeof d !== "string") return;
+          if (d === "ping") conn.sendControl("pong");
+          else if (d === "pong") pong("c");
+          else xfer.handleControl(d);
+        },
+        onData: (i, d) => {
+          if (typeof d !== "string") xfer.handleData(d);
+          else if (d === "ping") conn.sendData(i, "pong");
+          else if (d === "pong") pong(String(i));
+        },
       });
+      xfer.attach(conn);
       conns.current.set(peerId, conn);
-      patch(peerId, () => ({ state: "connecting", pongs: {} }));
+      xfers.current.set(peerId, xfer);
+      patch(peerId, () => ({ state: "connecting", pongs: {}, transfer: null }));
       return conn;
     },
     [self, sendSignal, patch],
@@ -51,6 +70,10 @@ export function usePeers(signal: SignalState) {
     });
     return () => setSignalHandler(null);
   }, [open, setSignalHandler]);
+
+  useEffect(() => {
+    void purgeTransfers();
+  }, []);
 
   useEffect(() => {
     const map = conns.current;
@@ -85,5 +108,7 @@ export function usePeers(signal: SignalState) {
     for (let i = 0; i < 4; i++) c.sendData(i, "ping");
   }, []);
 
-  return { links, connect: open, ping };
+  const sendFiles = useCallback((peerId: string, files: File[]) => xfers.current.get(peerId)?.send(files), []);
+
+  return { links, connect: open, ping, sendFiles };
 }

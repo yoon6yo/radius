@@ -9,6 +9,18 @@ class FakeChannel {
   onclose: (() => void) | null = null;
   onmessage: ((e: { data: unknown }) => void) | null = null;
   sent: unknown[] = [];
+  bufferedAmount = 0;
+  bufferedAmountLowThreshold = 0;
+  private listeners = new Map<string, Set<() => void>>();
+  addEventListener(t: string, fn: () => void) {
+    (this.listeners.get(t) ?? this.listeners.set(t, new Set()).get(t)!).add(fn);
+  }
+  removeEventListener(t: string, fn: () => void) {
+    this.listeners.get(t)?.delete(fn);
+  }
+  emit(t: string) {
+    [...(this.listeners.get(t) ?? [])].forEach((fn) => fn());
+  }
   constructor(
     readonly label: string,
     readonly id: number,
@@ -115,6 +127,45 @@ describe("channels", () => {
     expect(conn.sendControl("x")).toBe(true);
     expect(conn.sendData(1, "y")).toBe(true);
     expect(fake.channels[2]?.sent).toEqual(["y"]);
+  });
+});
+
+describe("backpressure api", () => {
+  it("sets the low threshold on data channels only", () => {
+    const { fake } = make("a", "b");
+    expect(fake.channels[0]?.bufferedAmountLowThreshold).toBe(0);
+    expect(fake.channels[1]?.bufferedAmountLowThreshold).toBeGreaterThan(0);
+  });
+
+  it("waitDrain resolves on bufferedamountlow, immediately when already low", async () => {
+    const { conn, fake } = make("a", "b");
+    connect(fake);
+    const ch = fake.channels[1]!;
+    await expect(conn.waitDrain(0)).resolves.toBeUndefined();
+    ch.bufferedAmount = ch.bufferedAmountLowThreshold + 1;
+    let done = false;
+    void conn.waitDrain(0).then(() => (done = true));
+    await Promise.resolve();
+    expect(done).toBe(false);
+    ch.emit("bufferedamountlow");
+    await Promise.resolve();
+    expect(done).toBe(true);
+    expect(conn.bufferedAmount(0)).toBe(ch.bufferedAmount);
+    expect(conn.bufferedAmount(99)).toBe(0);
+  });
+
+  it("waitReady resolves when a data channel opens", async () => {
+    const { conn, fake } = make("a", "b");
+    let ready = false;
+    void conn.waitReady().then(() => (ready = true));
+    await Promise.resolve();
+    expect(ready).toBe(false);
+    fake.channels[1]?.open();
+    await Promise.resolve();
+    expect(ready).toBe(true);
+    expect(conn.isDataOpen(0)).toBe(true);
+    expect(conn.isDataOpen(1)).toBe(false);
+    expect(conn.dataChannelCount).toBe(2);
   });
 });
 
