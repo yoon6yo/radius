@@ -77,9 +77,9 @@ export function nameSkeleton(name: string): string {
   return out.replace(/\s+/g, " ");
 }
 
-/** Device ID as 4-char hex groups for out-of-band comparison (first 80 bits). */
+/** Short device number: 6 digits from the first 20 bits of the ID. Easy to read aloud, but only ~20 bits. */
 export function deviceFingerprint(id: string): string {
-  return (id.slice(0, 20).match(/.{1,4}/g) ?? []).join(" ");
+  return (parseInt(id.slice(0, 5), 16) % 1_000_000).toString().padStart(6, "0");
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

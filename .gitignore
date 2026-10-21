@@ -5,3 +5,9 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+
+# local-only
+HANDOFF.md
+.agents/
+.impeccable/
+.taste-skill/

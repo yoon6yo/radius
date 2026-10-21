@@ -90,6 +90,8 @@ function harness(
     sink?: MemSink;
     senderCodec?: Codec;
     receiverCodec?: Codec;
+    onSenderFile?: (file: number, bytes: number) => void;
+    onReceiverFile?: (file: number, bytes: number) => void;
   } = {},
 ): Harness {
   const channels = opts.channels ?? 3;
@@ -133,12 +135,14 @@ function harness(
     sink,
     ...(opts.receiverCodec ? { codec: opts.receiverCodec } : {}),
     onOffer: () => Promise.resolve(opts.decision ?? "accept"),
+    ...(opts.onReceiverFile ? { onFileProgress: opts.onReceiverFile } : {}),
   });
   ref.sender = new Sender({
     id: 7,
     files,
     link,
     ...(opts.senderCodec ? { codec: opts.senderCodec } : {}),
+    ...(opts.onSenderFile ? { onFileProgress: opts.onSenderFile } : {}),
     ...(opts.highWatermark ? { highWatermark: opts.highWatermark } : {}),
     // The start-up ramp slows sending, so the mock link never fills; tests opt in explicitly.
     ...(opts.ramp ? {} : { ramp: false as const }),
@@ -160,6 +164,24 @@ describe("transfer", () => {
       expect(f.closed).toBe(true);
       expect(bytesEqual(f.data, d)).toBe(true);
     });
+  });
+
+  it("reports per-file progress on both sides, ending at each file's size", async () => {
+    const sizes = [0, 10, BLOCK_SIZE * 2 + 5];
+    const files = sizes.map((n, i) => ({ path: `f${i}`, source: new MemSource(pattern(n, i + 1)) }));
+    const sent = new Map<number, number[]>();
+    const got = new Map<number, number[]>();
+    const rec = (m: Map<number, number[]>) => (f: number, n: number) => m.set(f, [...(m.get(f) ?? []), n]);
+    const h = harness(files, { onSenderFile: rec(sent), onReceiverFile: rec(got) });
+    h.sender.start();
+    expect(await h.sender.result).toEqual({ status: "complete" });
+    await h.receiver.result;
+    for (const m of [sent, got]) {
+      expect(m.has(0)).toBe(false);
+      expect(m.get(1)!.at(-1)).toBe(10);
+      expect(m.get(2)!.at(-1)).toBe(sizes[2]);
+      expect([...m.get(2)!].sort((a, b) => a - b)).toEqual(m.get(2));
+    }
   });
 
   describe("compression", () => {

@@ -32,6 +32,8 @@ export interface SenderOptions {
   /** Compresses blocks when the receiver announces support and it pays off. */
   codec?: Codec;
   onProgress?(ackedBytes: number, totalBytes: number): void;
+  /** Acknowledged bytes of one file; fires after every ack that changes it. */
+  onFileProgress?(file: number, ackedBytes: number): void;
   /** Blocks read/hashed/sent concurrently. Default 4. */
   window?: number;
   /** Per-channel buffered bytes above which sending waits. Default 1 MiB. */
@@ -65,6 +67,7 @@ export class Sender {
   private readonly hashOnly = new Set<number>();
   private acked = new Set<number>();
   private ackedBytes = 0;
+  private readonly fileAcked: number[] = [];
   private sending = 0;
   private totalBytes = 0;
   private finished = false;
@@ -156,7 +159,10 @@ export class Sender {
     const i = this.blockIdx(f, b);
     if (i < 0 || this.acked.has(i)) return;
     this.acked.add(i);
-    this.ackedBytes += this.blocks[i]!.length;
+    const blk = this.blocks[i]!;
+    this.ackedBytes += blk.length;
+    this.fileAcked[blk.file] = (this.fileAcked[blk.file] ?? 0) + blk.length;
+    this.opts.onFileProgress?.(blk.file, this.fileAcked[blk.file]!);
     this.opts.onProgress?.(this.ackedBytes, this.totalBytes);
     if (this.acked.size === this.blocks.length) void this.sendDone();
   }

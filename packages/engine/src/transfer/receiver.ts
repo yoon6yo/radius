@@ -24,6 +24,8 @@ export interface ReceiverOptions {
   /** Accept/decline decision (user prompt, free-space check). */
   onOffer(files: FileMeta[], resumedBytes: number): Promise<"accept" | RejectReason>;
   onProgress?(verifiedBytes: number, totalBytes: number): void;
+  /** Verified bytes of one file; fires after every block that changes it (and once per resumed file). */
+  onFileProgress?(file: number, verifiedBytes: number): void;
 }
 
 /** Blocks being assembled or awaiting their hash; bounds receiver memory to ~64 MiB. */
@@ -54,6 +56,7 @@ export class Receiver {
   private waiting = new Map<string, Uint8Array>();
   private verified: (Uint8Array | undefined)[][] = [];
   private verifiedBytes = 0;
+  private fileBytes: number[] = [];
   private totalBytes = 0;
   private chain: Promise<void> = Promise.resolve();
 
@@ -163,7 +166,11 @@ export class Receiver {
     this.verifiedBytes = resumed;
     for (const [i, f] of files.entries()) await this.opts.sink.open(i, f.path, f.size);
     this.active = true;
-    if (resumed > 0) this.opts.onProgress?.(resumed, this.totalBytes);
+    this.fileBytes = verified.map((blocks, f) => blocks.reduce((n, h, b) => (h ? n + this.blockLen(files[f]!, b) : n), 0));
+    if (resumed > 0) {
+      this.opts.onProgress?.(resumed, this.totalBytes);
+      this.fileBytes.forEach((bytes, f) => bytes > 0 && this.opts.onFileProgress?.(f, bytes));
+    }
     const have = resumed > 0 ? verified.map((blocks) => encodeHave(blocks.map((h) => h !== undefined))) : undefined;
     const z = this.opts.codec ? ({ z: true } as const) : {};
     this.opts.send(have ? { t: "accept", id, have, ...z } : { t: "accept", id, ...z });
@@ -200,6 +207,8 @@ export class Receiver {
   private async revoke(f: number, b: number): Promise<void> {
     this.verified[f]![b] = undefined;
     this.verifiedBytes -= this.blockLen(this.files[f]!, b);
+    this.fileBytes[f]! -= this.blockLen(this.files[f]!, b);
+    this.opts.onFileProgress?.(f, this.fileBytes[f]!);
     await this.opts.sink.record?.(f, b, null);
     this.opts.send({ t: "nack", id: this.id, f, b });
   }
@@ -255,6 +264,8 @@ export class Receiver {
     await this.opts.sink.record?.(f, b, got);
     this.verified[f]![b] = got;
     this.verifiedBytes += len;
+    this.fileBytes[f]! += len;
+    this.opts.onFileProgress?.(f, this.fileBytes[f]!);
     this.opts.onProgress?.(this.verifiedBytes, this.totalBytes);
     this.opts.send({ t: "ack", id: this.id, f, b });
   }

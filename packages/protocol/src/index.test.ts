@@ -51,8 +51,10 @@ describe("nameSkeleton", () => {
 });
 
 describe("deviceFingerprint", () => {
-  it("shows 80 bits in 4-char groups", () => {
-    expect(deviceFingerprint("0123456789abcdef".repeat(4))).toBe("0123 4567 89ab cdef 0123");
+  it("is always 6 digits", () => {
+    expect(deviceFingerprint("0".repeat(64))).toBe("000000");
+    expect(deviceFingerprint("f".repeat(64))).toBe("048575");
+    expect(deviceFingerprint("a1b2c".padEnd(64, "0"))).toMatch(/^\d{6}$/);
   });
 });
 

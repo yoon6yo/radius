@@ -11,13 +11,24 @@ import { exportTransfer, freeBytes, safeName } from "./exportOpfs";
 import { OpfsSink, completeStaging } from "./opfsSink";
 import { zstdCodec } from "./zstdCodec";
 
+export interface TransferFile {
+  /** Display path (peer-supplied names are sanitized before they get here). */
+  name: string;
+  size: number;
+  /** Verified (receive) or acknowledged (send) bytes. */
+  done: number;
+}
+
 export interface TransferView {
+  /** Unique per transfer on this link; lets the UI tell a new transfer from an update. */
+  id: number;
   direction: "send" | "receive";
   name: string;
   done: number;
   total: number;
   status: "waiting" | "active" | "complete" | "failed" | "rejected" | "cancelled";
-  /** Received and verified; the user starts the download with this (needs a click gesture). */
+  files: TransferFile[];
+  /** Received and verified. The browser may have blocked the automatic download, so this saves again. */
   save?: () => Promise<void>;
 }
 
@@ -30,6 +41,9 @@ export interface PeerTransferOptions {
 }
 
 /** Glue between one PeerConnection and the transfer engine (one send + one receive at a time). */
+/** Shared across instances so TransferView.id is unique for the page lifetime. */
+let nextTransferId = 0;
+
 export class PeerTransfer {
   private conn: PeerConnection | null = null;
   private sender: Sender | null = null;
@@ -84,10 +98,20 @@ export class PeerTransfer {
   send(files: File[]): void {
     if (files.length === 0) return;
     this.sender?.interrupt();
+    const id = ++nextTransferId;
     const name = files.length === 1 ? files[0]!.name : `${files.length} files`;
     const total = files.reduce((n, f) => n + f.size, 0);
+    const fileDone = files.map(() => 0);
     const view = (status: TransferView["status"], done = 0) =>
-      this.opts.onView({ direction: "send", name, done, total, status });
+      this.opts.onView({
+        id,
+        direction: "send",
+        name,
+        done,
+        total,
+        status,
+        files: files.map((f, i) => ({ name: f.webkitRelativePath || f.name, size: f.size, done: fileDone[i]! })),
+      });
     if (files.length > MAX_OFFER_FILES) return view("failed");
     const sender = new Sender({
       id: crypto.getRandomValues(new Uint32Array(1))[0]!,
@@ -97,6 +121,9 @@ export class PeerTransfer {
         path: f.webkitRelativePath || f.name,
         source: { size: f.size, read: (o, l) => f.slice(o, o + l).arrayBuffer() },
       })),
+      onFileProgress: (f, n) => {
+        fileDone[f] = n;
+      },
       onProgress: (done) => view("active", done),
     });
     this.sender = sender;
@@ -104,17 +131,22 @@ export class PeerTransfer {
     sender.start();
     void sender.result.then((r) => {
       if (this.sender === sender) this.sender = null;
+      if (r.status === "complete") files.forEach((f, i) => (fileDone[i] = f.size));
       view(statusOf(r), r.status === "complete" ? total : 0);
     });
   }
 
   private startReceiving(): void {
     const sink = new OpfsSink(this.opts.peerId);
+    const id = ++nextTransferId;
     let name = "";
     let total = 0;
     let paths: string[] = [];
+    let sizes: number[] = [];
+    let fileDone: number[] = [];
+    const filesView = (): TransferFile[] => paths.map((p, i) => ({ name: safeName(p), size: sizes[i]!, done: fileDone[i]! }));
     const view = (status: TransferView["status"], done = 0) =>
-      this.opts.onView({ direction: "receive", name, done, total, status });
+      this.opts.onView({ id, direction: "receive", name, done, total, status, files: filesView() });
     const receiver = new Receiver({
       sink,
       codec: zstdCodec,
@@ -123,6 +155,8 @@ export class PeerTransfer {
         total = files.reduce((n, f) => n + f.size, 0);
         name = files.length === 1 ? safeName(files[0]!.path) : `${files.length} files`;
         paths = files.map((f) => f.path);
+        sizes = files.map((f) => f.size);
+        fileDone = files.map(() => 0);
         if ((await freeBytes()) < total - resumedBytes) return "no_space";
         const asking = (this.asking = new AbortController());
         const ok = await this.opts.ask(files, asking.signal).finally(() => {
@@ -131,6 +165,9 @@ export class PeerTransfer {
         if (!ok) return "declined";
         view("active");
         return "accept";
+      },
+      onFileProgress: (f, n) => {
+        fileDone[f] = n;
       },
       onProgress: (done) => view("active", done),
     });
@@ -141,19 +178,16 @@ export class PeerTransfer {
       if (r.status !== "complete") return view(statusOf(r));
       const dir = sink.dir;
       let saved = false;
-      this.opts.onView({
-        direction: "receive",
-        name,
-        done: total,
-        total,
-        status: "complete",
-        save: async () => {
-          await exportTransfer(dir, paths);
-          if (saved) return;
-          saved = true;
-          await completeStaging(dir);
-        },
-      });
+      const save = async () => {
+        await exportTransfer(dir, paths);
+        if (saved) return;
+        saved = true;
+        await completeStaging(dir);
+      };
+      fileDone = [...sizes];
+      this.opts.onView({ id, direction: "receive", name, done: total, total, status: "complete", files: filesView(), save });
+      // Browsers may block a download that is not tied to a click; the view keeps `save` for a second try.
+      void save().catch(() => undefined);
     });
   }
 

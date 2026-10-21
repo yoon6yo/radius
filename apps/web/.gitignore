@@ -2,3 +2,4 @@
 !.env.example
 shots/
 SECRETS.md
+.certs/
