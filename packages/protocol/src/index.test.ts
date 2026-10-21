@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromBase64Url, parseClientMsg, parseServerMsg, sanitizeName, toBase64Url } from "./index";
+import { deviceFingerprint, fromBase64Url, nameSkeleton, parseClientMsg, parseServerMsg, sanitizeName, toBase64Url } from "./index";
 
 const ID = "a".repeat(64);
 
@@ -26,6 +26,33 @@ describe("sanitizeName", () => {
     for (const c of ["\u202e", "\u2066", "\u200b", "\u200f", "\ufeff", "\u061c"]) {
       expect(sanitizeName(`ab${c}cd`)).toBeNull();
     }
+  });
+});
+
+describe("sanitizeName ignorables", () => {
+  it("rejects invisible format characters but keeps emoji selectors", () => {
+    for (const c of ["\u00ad", "\u034f", "\u115f", "\u3164", "\u2062", "\ufff9"]) {
+      expect(sanitizeName(`ab${c}cd`)).toBeNull();
+    }
+    expect(sanitizeName("\u2764\ufe0f")).toBe("\u2764\ufe0f");
+  });
+});
+
+describe("nameSkeleton", () => {
+  it("maps lookalikes and compat forms to one skeleton", () => {
+    expect(nameSkeleton("paypal")).toBe(nameSkeleton("p\u0430yp\u0430l"));
+    expect(nameSkeleton("Alice")).toBe(nameSkeleton("\uff21lice"));
+    expect(nameSkeleton("bob")).toBe(nameSkeleton("b\u043eb"));
+  });
+  it("keeps distinct names distinct", () => {
+    expect(nameSkeleton("푸른 고래")).not.toBe(nameSkeleton("푸른 고레"));
+    expect(nameSkeleton("alice")).not.toBe(nameSkeleton("alicf"));
+  });
+});
+
+describe("deviceFingerprint", () => {
+  it("shows 80 bits in 4-char groups", () => {
+    expect(deviceFingerprint("0123456789abcdef".repeat(4))).toBe("0123 4567 89ab cdef 0123");
   });
 });
 

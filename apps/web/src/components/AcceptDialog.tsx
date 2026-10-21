@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { FileMeta } from "@radius/protocol";
+import { deviceFingerprint, type FileMeta } from "@radius/protocol";
 import { Button } from "@/components/ui/button";
 import { safeName } from "@/lib/exportOpfs";
 import { formatBytes } from "@/lib/format";
@@ -46,7 +46,7 @@ export function AcceptDialog({ offer, onAnswer }: { offer: IncomingOffer | null;
             {offer.from} wants to send {offer.files.length === 1 ? "a file" : `${offer.files.length} files`}
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Device ID <span className="font-mono">{offer.peerId.slice(0, 8)}</span> · Total {formatBytes(total)}
+            Device ID <span className="font-mono">{deviceFingerprint(offer.peerId)}</span> · Total {formatBytes(total)}
           </p>
           {offer.duplicate && (
             <p role="alert" className="mt-2 text-sm font-medium text-red-600">

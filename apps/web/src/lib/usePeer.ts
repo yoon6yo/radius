@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FAILURE_HINTS, PeerConnection, parseRtcSignal, sdpFingerprint, type PeerState } from "@radius/engine";
 import type { IncomingOffer } from "@/components/AcceptDialog";
+import { nameSkeleton } from "@radius/protocol";
 import { sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
@@ -33,7 +34,8 @@ export function usePeers(signal: SignalState) {
     const peers = peersRef.current;
     const name = peers.find((p) => p.id === peerId)?.name;
     const from = name ?? peerId.slice(0, 8);
-    const duplicate = name !== undefined && peers.some((p) => p.id !== peerId && p.name === name);
+    const skeleton = name === undefined ? "" : nameSkeleton(name);
+    const duplicate = name !== undefined && peers.some((p) => p.id !== peerId && nameSkeleton(p.name) === skeleton);
     return new Promise((resolve) => {
       const settle = (accept: boolean) => {
         signal.removeEventListener("abort", onAbort);
