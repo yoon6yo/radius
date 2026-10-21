@@ -10,6 +10,7 @@ export const SHA256_BYTES = 32;
 /** Caps the resume bitmaps so an accept stays a single small control message. */
 export const MAX_HAVE_CHARS = 32 * 1024;
 
+const FRAME_TYPE_WARMUP = 0;
 const FRAME_TYPE_DATA = 1;
 
 /** Frame flags. ZSTD: payload is part of a zstd-compressed block. LAST: final frame of a compressed block. */
@@ -155,6 +156,13 @@ export function encodeFrame(h: FrameHeader, payload: Uint8Array): ArrayBuffer {
   dv.setUint32(8, h.blockIdx);
   dv.setUint32(12, h.offset);
   new Uint8Array(buf, FRAME_HEADER_BYTES).set(payload);
+  return buf;
+}
+
+/** Padding frame that `decodeFrame` rejects. Sent right after connecting so the SCTP start-up loss happens before a transfer. */
+export function encodeWarmupFrame(): ArrayBuffer {
+  const buf = new ArrayBuffer(MAX_MESSAGE_BYTES);
+  new DataView(buf).setUint8(0, FRAME_TYPE_WARMUP);
   return buf;
 }
 

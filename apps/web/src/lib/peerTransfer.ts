@@ -1,6 +1,7 @@
 import {
   Receiver,
   Sender,
+  warmUp,
   type DataLink,
   type PeerConnection,
   type TransferResult,
@@ -34,6 +35,7 @@ export class PeerTransfer {
   private sender: Sender | null = null;
   private receiver: Receiver | null = null;
   private readonly opts: PeerTransferOptions;
+  private warmed = false;
 
   constructor(opts: PeerTransferOptions) {
     this.opts = opts;
@@ -41,6 +43,13 @@ export class PeerTransfer {
 
   attach(conn: PeerConnection): void {
     this.conn = conn;
+  }
+
+  /** Once per link: the SCTP association survives ICE restarts, so a reconnect needs no second warm-up. */
+  warmUp(): void {
+    if (this.warmed || !this.conn) return;
+    this.warmed = true;
+    void warmUp(this.link()).catch(() => undefined);
   }
 
   handleControl(raw: string): void {

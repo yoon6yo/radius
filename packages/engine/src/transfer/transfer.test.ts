@@ -86,6 +86,7 @@ function harness(
     corrupt?: (frame: ArrayBuffer, n: number) => ArrayBuffer;
     decision?: "accept" | "declined" | "no_space";
     highWatermark?: number;
+    ramp?: boolean;
     sink?: MemSink;
     senderCodec?: Codec;
     receiverCodec?: Codec;
@@ -139,6 +140,8 @@ function harness(
     link,
     ...(opts.senderCodec ? { codec: opts.senderCodec } : {}),
     ...(opts.highWatermark ? { highWatermark: opts.highWatermark } : {}),
+    // The start-up ramp slows sending, so the mock link never fills; tests opt in explicitly.
+    ...(opts.ramp ? {} : { ramp: false as const }),
   });
   return Object.assign(h, { sender: ref.sender, receiver: ref.receiver, sink }) as Harness;
 }
@@ -217,6 +220,14 @@ describe("transfer", () => {
     await h.sender.result;
     expect(h.perChannel.every((n) => n > 0)).toBe(true);
     expect(h.maxBuffered).toBeLessThanOrEqual(hw + MAX_PAYLOAD_BYTES + 16);
+  });
+
+  it("completes with the start-up ramp enabled", async () => {
+    const data = pattern(BLOCK_SIZE, 3);
+    const h = harness([{ path: "a", source: new MemSource(data) }], { ramp: true });
+    h.sender.start();
+    expect(await h.sender.result).toEqual({ status: "complete" });
+    expect(bytesEqual(h.sink.files.get(0)!.data, data)).toBe(true);
   });
 
   it("re-sends a corrupted block after nack and still completes", async () => {
