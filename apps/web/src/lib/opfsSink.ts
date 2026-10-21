@@ -111,3 +111,14 @@ export class OpfsSink implements Sink {
     return w;
   }
 }
+
+/** Marks a fully received staging dir as done, from outside the transfer's own (already disposed) sink. */
+export async function completeStaging(dir: string): Promise<void> {
+  const sink = new OpfsSink("");
+  sink.dir = dir;
+  try {
+    await sink.complete();
+  } finally {
+    sink.dispose();
+  }
+}

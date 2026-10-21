@@ -1,10 +1,11 @@
 import { useSignal } from "@/lib/useSignal";
 import { usePeers } from "@/lib/usePeer";
+import { AcceptDialog } from "@/components/AcceptDialog";
 
 export function App() {
   const signal = useSignal();
   const { status, peers, self } = signal;
-  const { links, connect, ping, sendFiles } = usePeers(signal);
+  const { links, connect, ping, sendFiles, offer, respond } = usePeers(signal);
 
   return (
     <main className="mx-auto max-w-md p-6">
@@ -46,6 +47,11 @@ export function App() {
                   ? `${link.transfer.direction} ${link.transfer.status} ${link.transfer.done}/${link.transfer.total}`
                   : ""}
               </span>
+              {link?.transfer?.save && (
+                <button className="text-sm underline" data-testid={`save-${p.name}`} onClick={() => void link.transfer?.save?.()}>
+                  Save
+                </button>
+              )}
               {link?.failure && (
                 <p role="alert" className="basis-full text-xs text-red-600" data-testid={`failure-${p.name}`}>
                   {link.failure}
@@ -55,6 +61,7 @@ export function App() {
           );
         })}
       </ul>
+      <AcceptDialog offer={offer} onAnswer={respond} />
     </main>
   );
 }

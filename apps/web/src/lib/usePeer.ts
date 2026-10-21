@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FAILURE_HINTS, PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
-import { safeName, sweepTransfers } from "./exportOpfs";
+import type { IncomingOffer } from "@/components/AcceptDialog";
+import { sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
 
@@ -19,6 +20,28 @@ export function usePeers(signal: SignalState) {
   const conns = useRef(new Map<string, PeerConnection>());
   const xfers = useRef(new Map<string, PeerTransfer>());
   const [links, setLinks] = useState<Record<string, PeerLink>>({});
+  const [offer, setOffer] = useState<IncomingOffer | null>(null);
+  const answer = useRef<((accept: boolean) => void) | null>(null);
+  const peersRef = useRef(signal.peers);
+  useEffect(() => {
+    peersRef.current = signal.peers;
+  }, [signal.peers]);
+
+  /** One consent prompt at a time; a second offer while one is open is declined. */
+  const ask = useCallback((peerId: string, files: IncomingOffer["files"]): Promise<boolean> => {
+    if (answer.current) return Promise.resolve(false);
+    const from = peersRef.current.find((p) => p.id === peerId)?.name ?? peerId.slice(0, 8);
+    return new Promise((resolve) => {
+      answer.current = (accept) => {
+        answer.current = null;
+        setOffer(null);
+        resolve(accept);
+      };
+      setOffer({ from, files });
+    });
+  }, []);
+
+  const respond = useCallback((accept: boolean) => answer.current?.(accept), []);
 
   const patch = useCallback((id: string, fn: (l: PeerLink) => PeerLink) => {
     setLinks((all) => ({ ...all, [id]: fn(all[id] ?? { state: "connecting", pongs: {}, transfer: null, failure: null }) }));
@@ -35,11 +58,7 @@ export function usePeers(signal: SignalState) {
       const xfer = new PeerTransfer({
         peerId,
         onView: (transfer) => patch(peerId, (l) => ({ ...l, transfer })),
-        ask: (files) => {
-          const list = files.slice(0, 10).map((f) => `${safeName(f.path)} (${f.size} B)`);
-          if (files.length > list.length) list.push(`… +${files.length - list.length} more`);
-          return window.confirm(`Receive from ${peerId.slice(0, 8)}?\n${list.join("\n")}`);
-        },
+        ask: (files) => ask(peerId, files),
       });
       const conn: PeerConnection = new PeerConnection({
         selfId: self.id,
@@ -68,7 +87,7 @@ export function usePeers(signal: SignalState) {
       patch(peerId, () => ({ state: "connecting", pongs: {}, transfer: null, failure: null }));
       return conn;
     },
-    [self, sendSignal, patch],
+    [self, sendSignal, patch, ask],
   );
 
   useEffect(() => {
@@ -121,5 +140,5 @@ export function usePeers(signal: SignalState) {
 
   const sendFiles = useCallback((peerId: string, files: File[]) => xfers.current.get(peerId)?.send(files), []);
 
-  return { links, connect: open, ping, sendFiles };
+  return { links, connect: open, ping, sendFiles, offer, respond };
 }
