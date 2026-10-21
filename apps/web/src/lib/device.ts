@@ -1,8 +1,7 @@
 import type { DeviceIdentity } from "@radius/engine";
 import { toBase64Url } from "@radius/protocol";
+import { kvGet, kvPut, openDb, request } from "./kv";
 
-const DB_NAME = "radius";
-const STORE = "kv";
 const KEY = "identity";
 
 interface StoredIdentity {
@@ -18,23 +17,6 @@ function pick<T>(list: readonly T[]): T {
 
 function randomName(): string {
   return `${pick(NAMES.adj)} ${pick(NAMES.noun)}`;
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function request<T>(db: IDBDatabase, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const req = fn(db.transaction(STORE, mode).objectStore(STORE));
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
 }
 
 async function loadOrCreate(): Promise<StoredIdentity> {
@@ -67,4 +49,12 @@ export async function loadIdentity(): Promise<DeviceIdentity> {
     sign: async (message) =>
       toBase64Url(new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, message))),
   };
+}
+
+/** Persists a new display name on the stored identity. Returns false when there is nothing to update. */
+export async function saveDeviceName(name: string): Promise<boolean> {
+  const stored = await kvGet<StoredIdentity>(KEY);
+  if (!stored) return false;
+  await kvPut(KEY, { ...stored, name });
+  return true;
 }

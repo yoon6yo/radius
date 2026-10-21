@@ -9,6 +9,8 @@ interface DeviceCardProps {
   link: PeerLink | undefined;
   onConnect(): void;
   onSend(files: File[]): void;
+  /** Present for saved devices: forgets this device. */
+  onRemove?(): void;
 }
 
 const DOT: Record<PeerLink["state"], string> = {
@@ -39,19 +41,19 @@ export function subText(link: PeerLink | undefined, slow: boolean): string {
   switch (link?.state) {
     case undefined:
     case "closed":
-      return "눌러서 연결해요";
+      return "연결할 수 있어요";
     case "connecting":
-      return slow ? "응답이 늦어요. 상대 기기에서 Radius가 열려 있는지 확인해 주세요" : "상대 기기에 연결을 요청했어요";
+      return slow ? "응답이 늦어요. 상대 기기에서 Radius가 열려 있는지 확인해 주세요" : "연결을 요청했어요";
     case "reconnecting":
-      return "연결이 끊겨서 다시 연결하는 중이에요";
+      return "연결이 끊겨 다시 연결하는 중이에요";
     case "connected":
-      return "연결됐어요. 파일을 보낼 수 있어요";
+      return "연결됐어요";
     case "failed":
       return "연결하지 못했어요";
   }
 }
 
-export function DeviceCard({ name, link, onConnect, onSend }: DeviceCardProps) {
+export function DeviceCard({ name, link, onConnect, onSend, onRemove }: DeviceCardProps) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [closedId, setClosedId] = useState<number | null>(null);
@@ -78,40 +80,44 @@ export function DeviceCard({ name, link, onConnect, onSend }: DeviceCardProps) {
       onDragLeave={() => setOver(false)}
       onDrop={drop}
       data-expanded={showTransfer || undefined}
-      className={`rounded-[var(--radius)] bg-card p-4 ring-2 transition-[box-shadow,background-color] duration-300 ${
+      className={`rounded-[var(--radius)] bg-card px-4 py-3 ring-2 transition-[box-shadow,background-color] duration-300 ${
         over && connected ? "bg-accent ring-primary/50" : "ring-transparent"
       } ${connected ? "connected-flash" : ""}`}
     >
-      <p className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <i aria-hidden className={`size-2.5 shrink-0 rounded-full ${DOT[link?.state ?? "closed"]}`} />
-        <span className="truncate text-[17px] font-semibold leading-tight">{name}</span>
-      </p>
-      <p
-        className={`mt-1 min-h-[2.4em] text-[13px] leading-snug ${slow || (failed && link) ? "text-foreground" : "text-muted-foreground"}`}
-        data-testid={`link-${name}`}
-      >
-        {subText(link, slow)}
-      </p>
-
-      {!live && (
-        <div className="mt-3">
-          {connecting ? (
-            <Button disabled className="h-10 w-full rounded-full text-[15px]">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[16px] font-semibold leading-tight">{name}</p>
+          <p
+            className={`mt-0.5 text-[13px] leading-snug ${slow || (failed && link) ? "text-foreground" : "truncate text-muted-foreground"}`}
+            data-testid={`link-${name}`}
+          >
+            {subText(link, slow)}
+          </p>
+        </div>
+        {!live && (!showTransfer || failed) && (
+          connecting ? (
+            <Button disabled size="sm" className="h-9 shrink-0 rounded-full px-4 text-[14px]">
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              {link?.state === "reconnecting" ? "다시 연결하는 중…" : "연결하는 중…"}
+              {link?.state === "reconnecting" ? "다시 연결 중" : "연결 중"}
             </Button>
           ) : connected ? (
-            <Button className="h-10 w-full rounded-full text-[15px]" onClick={() => input.current?.click()}>
+            <Button size="sm" className="h-9 shrink-0 rounded-full px-4 text-[14px]" onClick={() => input.current?.click()}>
               <Send className="size-4" aria-hidden />
-              파일 보내기
+              보내기
             </Button>
           ) : (
-            <Button className="h-10 w-full rounded-full text-[15px]" onClick={onConnect}>
+            <Button size="sm" className="h-9 shrink-0 rounded-full px-4 text-[14px]" onClick={onConnect}>
               {failed && link ? "다시 시도" : "연결"}
             </Button>
-          )}
-        </div>
-      )}
+          )
+        )}
+        {onRemove && (
+          <button type="button" onClick={onRemove} className="shrink-0 rounded-full px-2 py-1 text-[13px] text-muted-foreground">
+            삭제
+          </button>
+        )}
+      </div>
       <input
         ref={input}
         type="file"
