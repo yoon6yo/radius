@@ -6,7 +6,10 @@ import {
   MAX_PATH_LENGTH,
   MAX_PAYLOAD_BYTES,
   blockCount,
+  MAX_HAVE_CHARS,
   decodeFrame,
+  decodeHave,
+  encodeHave,
   encodeFrame,
   isSafePath,
   parseTransferMsg,
@@ -71,6 +74,7 @@ describe("parseTransferMsg", () => {
   });
   it("parses lifecycle messages", () => {
     expect(parseTransferMsg({ t: "reject", id: 1, reason: "no_space" })).toEqual({ t: "reject", id: 1, reason: "no_space" });
+    expect(parseTransferMsg({ t: "reject", id: 1, reason: "busy" })).not.toBeNull();
     expect(parseTransferMsg({ t: "reject", id: 1, reason: "x" })).toBeNull();
     expect(parseTransferMsg({ t: "done", id: 1, root: hash })).not.toBeNull();
     expect(parseTransferMsg({ t: "complete", id: 1, ok: "yes" })).toBeNull();
@@ -90,5 +94,27 @@ describe("blockCount", () => {
     expect(blockCount(1)).toBe(1);
     expect(blockCount(BLOCK_SIZE)).toBe(1);
     expect(blockCount(BLOCK_SIZE + 1)).toBe(2);
+  });
+});
+
+describe("have bitmap", () => {
+  it("round-trips, incl. non-multiple-of-8 and empty", () => {
+    for (const n of [0, 1, 8, 9, 100]) {
+      const bits = Array.from({ length: n }, (_, i) => i % 3 === 0);
+      expect(decodeHave(encodeHave(bits), n)).toEqual(bits);
+    }
+  });
+  it("rejects a bitmap of the wrong length or alphabet", () => {
+    expect(decodeHave(encodeHave([true]), 9)).toBeNull();
+    expect(decodeHave("!!", 1)).toBeNull();
+  });
+  it("parses accept with have and rejects malformed/oversize have", () => {
+    const have = [encodeHave([true, false])];
+    expect(parseTransferMsg({ t: "accept", id: 1, have })).toEqual({ t: "accept", id: 1, have });
+    expect(parseTransferMsg({ t: "accept", id: 1, have: ["", ...have] })).not.toBeNull();
+    expect(parseTransferMsg({ t: "accept", id: 1, have: "x" })).toBeNull();
+    expect(parseTransferMsg({ t: "accept", id: 1, have: [1] })).toBeNull();
+    expect(parseTransferMsg({ t: "accept", id: 1, have: ["a".repeat(MAX_HAVE_CHARS + 4)] })).toBeNull();
+    expect(parseTransferMsg({ t: "accept", id: 1, have: new Array(MAX_OFFER_FILES + 1).fill("") })).toBeNull();
   });
 });

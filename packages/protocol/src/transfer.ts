@@ -1,4 +1,4 @@
-import { fromBase64Url } from "./index.ts";
+import { fromBase64Url, toBase64Url } from "./index.ts";
 
 export const BLOCK_SIZE = 4 * 1024 * 1024;
 export const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -7,6 +7,8 @@ export const MAX_PAYLOAD_BYTES = MAX_MESSAGE_BYTES - FRAME_HEADER_BYTES;
 export const MAX_OFFER_FILES = 150;
 export const MAX_PATH_LENGTH = 256;
 export const SHA256_BYTES = 32;
+/** Caps the resume bitmaps so an accept stays a single small control message. */
+export const MAX_HAVE_CHARS = 32 * 1024;
 
 const FRAME_TYPE_DATA = 1;
 
@@ -18,7 +20,7 @@ export interface FileMeta {
 
 export type TransferMsg =
   | { t: "offer"; id: number; files: FileMeta[] }
-  | { t: "accept"; id: number }
+  | { t: "accept"; id: number; have?: string[] }
   | { t: "reject"; id: number; reason: RejectReason }
   | { t: "bh"; id: number; f: number; b: number; h: string }
   | { t: "ack"; id: number; f: number; b: number }
@@ -27,7 +29,7 @@ export type TransferMsg =
   | { t: "complete"; id: number; ok: boolean }
   | { t: "cancel"; id: number };
 
-export type RejectReason = "declined" | "no_space";
+export type RejectReason = "declined" | "no_space" | "busy";
 
 export interface FrameHeader {
   flags: number;
@@ -66,6 +68,21 @@ export function isSafePath(p: unknown): p is string {
   return p.split("/").every((s) => s.length > 0 && s.length <= 255 && s !== "." && s !== "..");
 }
 
+/** Per-file bitmap (bit b of byte b>>3, LSB first) of verified blocks, for `accept.have`. */
+export function encodeHave(bits: boolean[]): string {
+  const out = new Uint8Array(Math.ceil(bits.length / 8));
+  bits.forEach((v, b) => {
+    if (v) out[b >> 3]! |= 1 << (b & 7);
+  });
+  return toBase64Url(out);
+}
+
+export function decodeHave(s: string, blocks: number): boolean[] | null {
+  const bytes = s === "" ? new Uint8Array(0) : fromBase64Url(s);
+  if (!bytes || bytes.length !== Math.ceil(blocks / 8)) return null;
+  return Array.from({ length: blocks }, (_, b) => (bytes[b >> 3]! & (1 << (b & 7))) !== 0);
+}
+
 function isHash(v: unknown): v is string {
   if (typeof v !== "string" || v.length > 64) return false;
   return fromBase64Url(v)?.length === SHA256_BYTES;
@@ -87,10 +104,18 @@ export function parseTransferMsg(raw: unknown): TransferMsg | null {
       }
       return { t: "offer", id, files };
     }
-    case "accept":
-      return { t: "accept", id };
+    case "accept": {
+      if (raw.have === undefined) return { t: "accept", id };
+      if (!Array.isArray(raw.have) || raw.have.length > MAX_OFFER_FILES) return null;
+      let chars = 0;
+      for (const h of raw.have as unknown[]) {
+        if (typeof h !== "string" || (h !== "" && fromBase64Url(h) === null)) return null;
+        chars += h.length;
+      }
+      return chars <= MAX_HAVE_CHARS ? { t: "accept", id, have: raw.have as string[] } : null;
+    }
     case "reject":
-      return raw.reason === "declined" || raw.reason === "no_space"
+      return raw.reason === "declined" || raw.reason === "no_space" || raw.reason === "busy"
         ? { t: "reject", id, reason: raw.reason }
         : null;
     case "bh":

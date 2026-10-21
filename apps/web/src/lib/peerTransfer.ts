@@ -59,8 +59,15 @@ export class PeerTransfer {
     this.receiver?.handleData(buf);
   }
 
+  /** Terminal link state: end both transfers; receiver staging stays on disk for a resume. */
+  interrupt(): void {
+    this.sender?.interrupt();
+    this.receiver?.interrupt();
+  }
+
   send(files: File[]): void {
-    if (this.sender || files.length === 0) return;
+    if (files.length === 0) return;
+    this.sender?.interrupt();
     const name = files.length === 1 ? files[0]!.name : `${files.length} files`;
     const total = files.reduce((n, f) => n + f.size, 0);
     const view = (status: TransferView["status"], done = 0) =>
@@ -79,14 +86,13 @@ export class PeerTransfer {
     view("waiting");
     sender.start();
     void sender.result.then((r) => {
-      this.sender = null;
+      if (this.sender === sender) this.sender = null;
       view(statusOf(r), r.status === "complete" ? total : 0);
     });
   }
 
   private startReceiving(): void {
-    const dir = `${Date.now()}-${crypto.randomUUID()}`;
-    const sink = new OpfsSink(dir);
+    const sink = new OpfsSink();
     let name = "";
     let total = 0;
     let paths: string[] = [];
@@ -95,11 +101,11 @@ export class PeerTransfer {
     const receiver = new Receiver({
       sink,
       send: (m) => this.conn?.sendControl(JSON.stringify(m)) ?? false,
-      onOffer: async (files) => {
+      onOffer: async (files, resumedBytes) => {
         total = files.reduce((n, f) => n + f.size, 0);
         name = files.length === 1 ? safeName(files[0]!.path) : `${files.length} files`;
         paths = files.map((f) => f.path);
-        if ((await freeBytes()) < total) return "no_space";
+        if ((await freeBytes()) < total - resumedBytes) return "no_space";
         if (!this.opts.ask(files)) return "declined";
         view("active");
         return "accept";
@@ -108,8 +114,11 @@ export class PeerTransfer {
     });
     this.receiver = receiver;
     void receiver.result.then(async (r) => {
-      this.receiver = null;
-      if (r.status === "complete") await exportTransfer(dir, paths);
+      if (this.receiver === receiver) this.receiver = null;
+      if (r.status === "complete") {
+        await exportTransfer(sink.dir, paths);
+        await sink.complete().catch(() => undefined);
+      }
       sink.dispose();
       view(statusOf(r), r.status === "complete" ? total : 0);
     });

@@ -18,7 +18,7 @@ export function safeName(name: string): string {
 async function dirHandle(dir: string): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
   const base = await root.getDirectoryHandle(ROOT, { create: true });
-  return base.getDirectoryHandle(dir);
+  return (await base.getDirectoryHandle(dir)).getDirectoryHandle("data");
 }
 
 /** Saves each received file via a disk-backed File (no memory copy). Folders are flattened by M6's zip export. */
@@ -40,10 +40,23 @@ export async function exportTransfer(dir: string, paths: string[]): Promise<void
   }
 }
 
-/** Dev-only housekeeping until M4's resumable staging with a 7-day expiry. */
-export async function purgeTransfers(): Promise<void> {
+export const STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Removes staging dirs untouched for {@link STAGING_TTL_MS}, and any without a readable meta.json. */
+export async function sweepTransfers(now = Date.now()): Promise<void> {
   const root = await navigator.storage.getDirectory();
-  await root.removeEntry(ROOT, { recursive: true }).catch(() => undefined);
+  const base = await root.getDirectoryHandle(ROOT, { create: true });
+  for await (const [name, entry] of base.entries()) {
+    if (entry.kind !== "directory") continue;
+    let touched = 0;
+    try {
+      const file = await (await (entry as FileSystemDirectoryHandle).getFileHandle("meta.json")).getFile();
+      touched = (JSON.parse(await file.text()) as { touched?: number }).touched ?? 0;
+    } catch {
+      /* unreadable meta: treat as expired */
+    }
+    if (now - touched > STAGING_TTL_MS) await base.removeEntry(name, { recursive: true }).catch(() => undefined);
+  }
 }
 
 export async function freeBytes(): Promise<number> {

@@ -3,7 +3,7 @@ import { BLOCK_SIZE, MAX_PAYLOAD_BYTES, encodeFrame, type TransferMsg } from "@r
 import { bytesEqual } from "./hash";
 import { MAX_INFLIGHT_BLOCKS, Receiver } from "./receiver";
 import { Sender, type SendFile } from "./sender";
-import type { DataLink, FileSource, Sink } from "./types";
+import { StagingBusyError, type DataLink, type FileSource, type Sink } from "./types";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -19,9 +19,24 @@ class MemSource implements FileSource {
 
 class MemSink implements Sink {
   files = new Map<number, { path: string; data: Uint8Array; closed: boolean }>();
+  /** Survives across sinks to model OPFS staging of an interrupted transfer. */
+  persisted: (Uint8Array | undefined)[][] = [];
   aborted = false;
+  busy = false;
+  resume() {
+    return this.busy ? Promise.reject(new StagingBusyError()) : Promise.resolve(this.persisted);
+  }
+  read(i: number, offset: number, length: number) {
+    return Promise.resolve(this.files.get(i)!.data.slice(offset, offset + length));
+  }
+  record(f: number, b: number, hash: Uint8Array | null) {
+    (this.persisted[f] ??= [])[b] = hash ?? undefined;
+    return Promise.resolve();
+  }
   open(i: number, path: string, size: number) {
-    this.files.set(i, { path, data: new Uint8Array(size), closed: false });
+    if (this.files.get(i)?.data.length !== size) {
+      this.files.set(i, { path, data: new Uint8Array(size), closed: false });
+    }
     return Promise.resolve();
   }
   write(i: number, offset: number, data: Uint8Array) {
@@ -59,6 +74,7 @@ function harness(
     corrupt?: (frame: ArrayBuffer, n: number) => ArrayBuffer;
     decision?: "accept" | "declined" | "no_space";
     highWatermark?: number;
+    sink?: MemSink;
   } = {},
 ): Harness {
   const channels = opts.channels ?? 3;
@@ -68,7 +84,7 @@ function harness(
   const h: Partial<Harness> = { perChannel, maxBuffered: 0 };
   let dataN = 0;
   const ref = {} as { receiver: Receiver; sender: Sender };
-  const sink = new MemSink();
+  const sink = opts.sink ?? new MemSink();
 
   const toReceiver = (m: TransferMsg) => {
     setTimeout(() => ref.receiver.handleControl(m), 0);
@@ -206,5 +222,91 @@ describe("transfer", () => {
     expect(await r.result).toEqual({ status: "failed", reason: "too_many_blocks" });
     expect(sent.at(-1)).toEqual({ t: "cancel", id: 1 });
     expect(sink.aborted).toBe(true);
+  });
+
+  describe("resume", () => {
+    const data = pattern(BLOCK_SIZE * 2 + 7, 4);
+    const files = () => [{ path: "a", source: new MemSource(data) }];
+
+    async function interrupted(): Promise<MemSink> {
+      const first = harness(files());
+      first.sender.start();
+      await first.sender.result;
+      const sink = new MemSink();
+      sink.files = first.sink.files;
+      sink.persisted = first.sink.persisted;
+      return sink;
+    }
+
+    it("sends no data frames for blocks the receiver already verified", async () => {
+      const sink = await interrupted();
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(h.perChannel.reduce((a, b) => a + b, 0)).toBe(0);
+      expect(bytesEqual(sink.files.get(0)!.data, data)).toBe(true);
+    });
+
+    it("re-sends a block whose persisted hash disagrees with the sender", async () => {
+      const sink = await interrupted();
+      sink.persisted[0]![1] = new Uint8Array(32);
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(h.perChannel.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+      expect(bytesEqual(sink.files.get(0)!.data, data)).toBe(true);
+    });
+
+    it("sends only the missing block of a partial transfer", async () => {
+      const sink = await interrupted();
+      sink.persisted[0]![0] = undefined;
+      sink.files.get(0)!.data.fill(0, 0, BLOCK_SIZE);
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(h.perChannel.reduce((a, b) => a + b, 0)).toBe(Math.ceil(BLOCK_SIZE / MAX_PAYLOAD_BYTES));
+      expect(bytesEqual(sink.files.get(0)!.data, data)).toBe(true);
+    });
+
+    it("re-sends a block whose staged bytes no longer match the recorded hash", async () => {
+      const sink = await interrupted();
+      sink.files.get(0)!.data.fill(0, BLOCK_SIZE, BLOCK_SIZE + 10);
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(h.perChannel.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+      expect(bytesEqual(sink.files.get(0)!.data, data)).toBe(true);
+    });
+
+    it("rejects with busy when the staging is in use", async () => {
+      const sink = new MemSink();
+      sink.busy = true;
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "rejected", reason: "busy" });
+    });
+
+    it("ignores malformed persisted hashes", async () => {
+      const sink = await interrupted();
+      sink.persisted[0]![0] = new Uint8Array(5);
+      const h = harness(files(), { sink });
+      h.sender.start();
+      expect(await h.sender.result).toEqual({ status: "complete" });
+    });
+  });
+
+  it("interrupt keeps the receiver's staging (no sink abort) and ends the sender without a cancel", async () => {
+    const sent: TransferMsg[] = [];
+    const sink = new MemSink();
+    const r = new Receiver({ send: (m) => (sent.push(m), true), sink, onOffer: () => Promise.resolve("accept") });
+    r.handleControl({ t: "offer", id: 1, files: [{ path: "a", size: 10 }] });
+    await tick();
+    r.interrupt();
+    expect(await r.result).toEqual({ status: "failed", reason: "link_lost" });
+    expect(sink.aborted).toBe(false);
+    const h = harness([{ path: "a", source: new MemSource(pattern(BLOCK_SIZE * 3, 1)) }]);
+    h.sender.start();
+    h.sender.interrupt();
+    expect(await h.sender.result).toEqual({ status: "failed", reason: "link_lost" });
   });
 });

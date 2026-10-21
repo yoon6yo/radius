@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
-import { purgeTransfers, safeName } from "./exportOpfs";
+import { safeName, sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
 
@@ -42,7 +42,10 @@ export function usePeers(signal: SignalState) {
         selfId: self.id,
         peerId,
         sendSignal: (data) => sendSignal(peerId, data),
-        onState: (state) => patch(peerId, (l) => ({ ...l, state })),
+        onState: (state) => {
+          if (state === "failed" || state === "closed") xfer.interrupt();
+          patch(peerId, (l) => ({ ...l, state }));
+        },
         onControl: (d) => {
           if (typeof d !== "string") return;
           if (d === "ping") conn.sendControl("pong");
@@ -76,7 +79,7 @@ export function usePeers(signal: SignalState) {
   }, [open, setSignalHandler]);
 
   useEffect(() => {
-    void purgeTransfers();
+    void sweepTransfers().catch(() => undefined);
   }, []);
 
   useEffect(() => {

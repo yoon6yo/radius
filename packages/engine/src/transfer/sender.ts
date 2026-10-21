@@ -2,6 +2,7 @@ import {
   BLOCK_SIZE,
   MAX_PAYLOAD_BYTES,
   blockCount,
+  decodeHave,
   encodeFrame,
   toBase64Url,
   type TransferMsg,
@@ -43,6 +44,8 @@ export class Sender {
   private readonly hashes: Uint8Array[] = [];
   private readonly pending: number[] = [];
   private readonly retries = new Map<number, number>();
+  /** Blocks the receiver already holds: only their hash is sent, for it to compare. */
+  private readonly hashOnly = new Set<number>();
   private acked = new Set<number>();
   private ackedBytes = 0;
   private sending = 0;
@@ -79,11 +82,17 @@ export class Sender {
     this.finish({ status: "cancelled" });
   }
 
+  /** Link is gone for good: stop without notifying the peer. */
+  interrupt(): void {
+    this.finish({ status: "failed", reason: "link_lost" });
+  }
+
   handleControl(msg: TransferMsg): void {
     if (this.finished || msg.id !== this.opts.id) return;
     switch (msg.t) {
       case "accept":
         if (this.pending.length === 0 && this.acked.size === 0) {
+          this.markHave(msg.have);
           this.blocks.forEach((_, i) => this.pending.push(i));
           this.pump();
           if (this.blocks.length === 0) void this.sendDone();
@@ -109,6 +118,15 @@ export class Sender {
     }
   }
 
+  private markHave(have: string[] | undefined): void {
+    if (!have || have.length !== this.opts.files.length) return;
+    const maps = have.map((h, f) => decodeHave(h, blockCount(this.opts.files[f]!.source.size)));
+    if (maps.some((m) => m === null)) return;
+    this.blocks.forEach((blk, i) => {
+      if (maps[blk.file]![blk.index]) this.hashOnly.add(i);
+    });
+  }
+
   private blockIdx(f: number, b: number): number {
     return this.blocks.findIndex((x) => x.file === f && x.index === b);
   }
@@ -131,6 +149,7 @@ export class Sender {
       this.finish({ status: "failed", reason: "block_retries_exceeded" });
       return;
     }
+    this.hashOnly.delete(i);
     this.pending.push(i);
     this.pump();
   }
@@ -159,6 +178,7 @@ export class Sender {
     if (this.finished) return;
     const id = this.opts.id;
     this.opts.link.sendControl({ t: "bh", id, f: blk.file, b: blk.index, h: toBase64Url(h) });
+    if (this.hashOnly.has(i)) return;
     for (let pos = 0; pos < blk.length; pos += MAX_PAYLOAD_BYTES) {
       const frame = encodeFrame(
         { flags: 0, fileIdx: blk.file, transferId: id, blockIdx: blk.index, offset: pos },
