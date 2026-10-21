@@ -208,6 +208,51 @@ describe("state & ICE restart", () => {
   });
 });
 
+describe("notifyNetwork", () => {
+  it("offline marks a connected link reconnecting; online restarts ICE and recovers", () => {
+    const { conn, fake, states } = make("a", "b");
+    connect(fake);
+    conn.notifyNetwork(false);
+    expect(states.at(-1)).toBe("reconnecting");
+    conn.notifyNetwork(true);
+    expect(fake.restarts).toBe(1);
+    expect(states.at(-1)).toBe("connected");
+  });
+
+  it("online while connected is a no-op", () => {
+    const { conn, fake } = make("a", "b");
+    connect(fake);
+    conn.notifyNetwork(true);
+    expect(fake.restarts).toBe(0);
+  });
+
+  it("offline before the first connection does not report reconnecting", () => {
+    const { conn, states } = make("a", "b");
+    conn.notifyNetwork(false);
+    expect(states).toEqual([]);
+  });
+
+  it("online cancels pending backoff and resets the attempt budget", () => {
+    const { conn, fake } = make("a", "b", { maxRestarts: 1 });
+    connect(fake);
+    fake.setIce("failed");
+    conn.notifyNetwork(true);
+    expect(fake.restarts).toBe(1);
+    vi.advanceTimersByTime(10_000);
+    expect(fake.restarts).toBe(1);
+    fake.setIce("failed");
+    vi.advanceTimersByTime(100);
+    expect(fake.restarts).toBe(2);
+  });
+
+  it("is ignored after close", () => {
+    const { conn, fake } = make("a", "b");
+    conn.close();
+    conn.notifyNetwork(true);
+    expect(fake.restarts).toBe(0);
+  });
+});
+
 describe("close", () => {
   it("is idempotent, stops signaling and timers", () => {
     const { conn, fake, sent, states } = make("a", "b");

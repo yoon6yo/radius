@@ -56,6 +56,23 @@ export class PeerConnection {
     return ch !== undefined && this.trySend(ch, data);
   }
 
+  /**
+   * Report browser/signaling reachability. Offline marks a live link as reconnecting;
+   * back online restarts ICE immediately instead of waiting for the failure timers.
+   */
+  notifyNetwork(online: boolean): void {
+    if (this.state_ === "closed" || this.state_ === "failed") return;
+    if (!online) {
+      if (this.everConnected) this.setState("reconnecting");
+      return;
+    }
+    if (this.state_ === "connected") return;
+    this.clearTimers();
+    this.restartAttempt = 0;
+    this.pc.restartIce();
+    this.refresh();
+  }
+
   /** Feed a payload received from the signaling relay. Malformed input is dropped. */
   async handleSignal(raw: unknown): Promise<void> {
     const sig = parseRtcSignal(raw);

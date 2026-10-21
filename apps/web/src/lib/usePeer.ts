@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PeerConnection, type PeerState } from "@radius/engine";
+import { PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
 import type { SignalState } from "./useSignal";
 
 export interface PeerLink {
@@ -10,7 +10,7 @@ export interface PeerLink {
 
 /** Dev-only: one PeerConnection per remote peer with a ping/pong echo over every channel. */
 export function usePeers(signal: SignalState) {
-  const { self, sendSignal, setSignalHandler } = signal;
+  const { self, status, sendSignal, setSignalHandler } = signal;
   const conns = useRef(new Map<string, PeerConnection>());
   const [links, setLinks] = useState<Record<string, PeerLink>>({});
 
@@ -42,7 +42,13 @@ export function usePeers(signal: SignalState) {
   );
 
   useEffect(() => {
-    setSignalHandler((from, data) => void open(from)?.handleSignal(data));
+    setSignalHandler((from, data) => {
+      // Dev-only: only an incoming offer may create a link; real consent is the M3 accept sheet.
+      const sig = parseRtcSignal(data);
+      const known = conns.current.get(from);
+      if (!sig || (!known && !(sig.t === "sdp" && sig.description.type === "offer"))) return;
+      void open(from)?.handleSignal(data);
+    });
     return () => setSignalHandler(null);
   }, [open, setSignalHandler]);
 
@@ -53,6 +59,24 @@ export function usePeers(signal: SignalState) {
       map.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const map = conns.current;
+    const notify = (online: boolean) => map.forEach((c) => c.notifyNetwork(online));
+    const up = () => notify(true);
+    const down = () => notify(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  // Signaling is needed to renegotiate; once it is back, retry links that are not up.
+  useEffect(() => {
+    if (status === "online") conns.current.forEach((c) => c.notifyNetwork(true));
+  }, [status]);
 
   const ping = useCallback((peerId: string) => {
     const c = conns.current.get(peerId);
