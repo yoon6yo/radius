@@ -7,7 +7,7 @@ import {
 } from "@radius/engine";
 import { MAX_OFFER_FILES, parseTransferMsg, type FileMeta } from "@radius/protocol";
 import { exportTransfer, freeBytes, safeName } from "./exportOpfs";
-import { OpfsSink } from "./opfsSink";
+import { OpfsSink, completeStaging } from "./opfsSink";
 
 export interface TransferView {
   direction: "send" | "receive";
@@ -15,12 +15,16 @@ export interface TransferView {
   done: number;
   total: number;
   status: "waiting" | "active" | "complete" | "failed" | "rejected" | "cancelled";
+  /** Received and verified; the user starts the download with this (needs a click gesture). */
+  save?: () => Promise<void>;
 }
 
 export interface PeerTransferOptions {
+  /** Authenticated id of the remote peer; scopes resumable staging. */
+  peerId: string;
   onView(v: TransferView): void;
-  /** Dev stand-in for the M6 accept sheet. */
-  ask(files: FileMeta[]): boolean;
+  /** Consent prompt for an incoming offer. */
+  ask(files: FileMeta[]): Promise<boolean>;
 }
 
 /** Glue between one PeerConnection and the transfer engine (one send + one receive at a time). */
@@ -92,7 +96,7 @@ export class PeerTransfer {
   }
 
   private startReceiving(): void {
-    const sink = new OpfsSink();
+    const sink = new OpfsSink(this.opts.peerId);
     let name = "";
     let total = 0;
     let paths: string[] = [];
@@ -106,7 +110,7 @@ export class PeerTransfer {
         name = files.length === 1 ? safeName(files[0]!.path) : `${files.length} files`;
         paths = files.map((f) => f.path);
         if ((await freeBytes()) < total - resumedBytes) return "no_space";
-        if (!this.opts.ask(files)) return "declined";
+        if (!(await this.opts.ask(files))) return "declined";
         view("active");
         return "accept";
       },
@@ -115,12 +119,23 @@ export class PeerTransfer {
     this.receiver = receiver;
     void receiver.result.then(async (r) => {
       if (this.receiver === receiver) this.receiver = null;
-      if (r.status === "complete") {
-        await exportTransfer(sink.dir, paths);
-        await sink.complete().catch(() => undefined);
-      }
       sink.dispose();
-      view(statusOf(r), r.status === "complete" ? total : 0);
+      if (r.status !== "complete") return view(statusOf(r));
+      const dir = sink.dir;
+      let saved = false;
+      this.opts.onView({
+        direction: "receive",
+        name,
+        done: total,
+        total,
+        status: "complete",
+        save: async () => {
+          await exportTransfer(dir, paths);
+          if (saved) return;
+          saved = true;
+          await completeStaging(dir);
+        },
+      });
     });
   }
 

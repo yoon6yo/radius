@@ -1,6 +1,7 @@
 export * from "./signal/client";
 export * from "./rtc/PeerConnection";
 export * from "./rtc/negotiation";
+export * from "./rtc/diagnose";
 export * from "./rtc/types";
 export * from "./transfer/types";
 export * from "./transfer/hash";

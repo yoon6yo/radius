@@ -1,10 +1,11 @@
 import { useSignal } from "@/lib/useSignal";
 import { usePeers } from "@/lib/usePeer";
+import { AcceptDialog } from "@/components/AcceptDialog";
 
 export function App() {
   const signal = useSignal();
   const { status, peers, self } = signal;
-  const { links, connect, ping, sendFiles } = usePeers(signal);
+  const { links, connect, ping, sendFiles, offer, respond } = usePeers(signal);
 
   return (
     <main className="mx-auto max-w-md p-6">
@@ -17,7 +18,7 @@ export function App() {
         {peers.map((p) => {
           const link = links[p.id];
           return (
-            <li key={p.id} className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3">
+            <li key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3">
               <span className="flex-1">{p.name}</span>
               <span className="text-xs text-neutral-500" data-testid={`link-${p.name}`}>
                 {link?.state ?? "idle"}
@@ -46,10 +47,21 @@ export function App() {
                   ? `${link.transfer.direction} ${link.transfer.status} ${link.transfer.done}/${link.transfer.total}`
                   : ""}
               </span>
+              {link?.transfer?.save && (
+                <button className="text-sm underline" data-testid={`save-${p.name}`} onClick={() => void link.transfer?.save?.()}>
+                  Save
+                </button>
+              )}
+              {link?.failure && (
+                <p role="alert" className="basis-full text-xs text-red-600" data-testid={`failure-${p.name}`}>
+                  {link.failure}
+                </p>
+              )}
             </li>
           );
         })}
       </ul>
+      <AcceptDialog offer={offer} onAnswer={respond} />
     </main>
   );
 }

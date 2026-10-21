@@ -278,6 +278,18 @@ describe("transfer", () => {
       expect(bytesEqual(sink.files.get(0)!.data, data)).toBe(true);
     });
 
+    it("keeps staged blocks when a resumed offer is declined, but aborts a fresh one", async () => {
+      const staged = await interrupted();
+      const resumed = harness(files(), { sink: staged, decision: "declined" });
+      resumed.sender.start();
+      expect(await resumed.sender.result).toEqual({ status: "rejected", reason: "declined" });
+      expect(staged.aborted).toBe(false);
+      const fresh = harness(files(), { decision: "declined" });
+      fresh.sender.start();
+      await fresh.sender.result;
+      expect(fresh.sink.aborted).toBe(true);
+    });
+
     it("rejects with busy when the staging is in use", async () => {
       const sink = new MemSink();
       sink.busy = true;
