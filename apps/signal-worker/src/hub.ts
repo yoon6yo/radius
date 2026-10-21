@@ -27,6 +27,8 @@ export interface HubOptions {
   pairTtlMs?: number;
   /** Failed code entries one network may make per window before further tries are refused. */
   maxFailedJoins?: number;
+  /** Failed code entries tolerated hub-wide per minute; caps guessing even from many networks. */
+  maxGlobalFailedJoins?: number;
 }
 
 export interface ConnHandle {
@@ -57,6 +59,9 @@ const CLOSE_AUTH_TIMEOUT = 4001;
 const CLOSE_POLICY = 1008;
 const MAX_CODES = 1_000;
 const JOIN_WINDOW_MS = 10 * 60_000;
+const PAIR_WINDOW_MS = 60_000;
+const MAX_PAIRS_PER_WINDOW = 6;
+const GLOBAL_FAIL_WINDOW_MS = 60_000;
 const encoder = new TextEncoder();
 
 async function parsePublicKey(b64: string): Promise<{ key: CryptoKey; spki: Uint8Array } | null> {
@@ -83,8 +88,11 @@ export class SignalHub {
   private readonly byId = new Map<string, Conn>();
   private readonly codes = new Map<string, { conn: Conn; expires: number }>();
   private readonly failedJoins = new Map<string, { count: number; resetAt: number }>();
+  private readonly pairRequests = new Map<string, { count: number; resetAt: number }>();
+  private globalFails = { count: 0, resetAt: 0 };
   private readonly pairTtlMs: number;
   private readonly maxFailedJoins: number;
+  private readonly maxGlobalFailedJoins: number;
   private readonly maxRoomSize: number;
   private readonly maxConnsPerIp: number;
   private readonly maxTotalConns: number;
@@ -97,6 +105,7 @@ export class SignalHub {
     this.authTimeoutMs = opts.authTimeoutMs ?? 5_000;
     this.pairTtlMs = opts.pairTtlMs ?? 120_000;
     this.maxFailedJoins = opts.maxFailedJoins ?? 10;
+    this.maxGlobalFailedJoins = opts.maxGlobalFailedJoins ?? 100;
   }
 
   open(sock: Sock, ip: string): ConnHandle {
@@ -199,8 +208,31 @@ export class SignalHub {
     }
   }
 
+  /** Checked live on every relay: both sides must still list each other, whatever was announced earlier. */
+  private mutualFriend(conn: Conn, id: string): Conn | undefined {
+    const other = this.byId.get(id);
+    return other?.peer && conn.peer && conn.friends.has(id) && other.friends.has(conn.peer.id) ? other : undefined;
+  }
+
+  /** Withdraws a connection's announced friendships so peers never keep a stale view of it. */
+  private retract(conn: Conn): void {
+    const id = conn.peer?.id;
+    if (!id) return;
+    for (const fid of conn.visible) {
+      const other = this.byId.get(fid);
+      if (!other) continue;
+      other.visible.delete(id);
+      this.send(other, { t: "friend_left", id });
+    }
+    conn.visible.clear();
+  }
+
   private onPair(conn: Conn): void {
     const now = Date.now();
+    let asked = this.pairRequests.get(conn.roomKey);
+    if (!asked || asked.resetAt <= now) this.pairRequests.set(conn.roomKey, (asked = { count: 0, resetAt: now + PAIR_WINDOW_MS }));
+    // Without this, one network could flood requests to evict everyone else's codes.
+    if (++asked.count > MAX_PAIRS_PER_WINDOW) return this.send(conn, { t: "error", code: "bad_code" });
     for (const [code, e] of this.codes) if (e.expires <= now) this.codes.delete(code);
     if (conn.code) this.codes.delete(conn.code);
     if (this.codes.size >= MAX_CODES) {
@@ -223,12 +255,16 @@ export class SignalHub {
     const net = conn.roomKey;
     let tries = this.failedJoins.get(net);
     if (!tries || tries.resetAt <= now) this.failedJoins.set(net, (tries = { count: 0, resetAt: now + JOIN_WINDOW_MS }));
-    if (tries.count >= this.maxFailedJoins) return this.send(conn, { t: "error", code: "bad_code" });
+    if (this.globalFails.resetAt <= now) this.globalFails = { count: 0, resetAt: now + GLOBAL_FAIL_WINDOW_MS };
+    if (tries.count >= this.maxFailedJoins || this.globalFails.count >= this.maxGlobalFailedJoins) {
+      return this.send(conn, { t: "error", code: "bad_code" });
+    }
 
     const entry = this.codes.get(code);
     const host = entry && entry.expires > now && !entry.conn.closed && entry.conn.peer && entry.conn !== conn ? entry.conn : null;
     if (!host?.peer || host.peer.id === me.id) {
       tries.count++;
+      this.globalFails.count++;
       return this.send(conn, { t: "error", code: "bad_code" });
     }
     this.codes.delete(code);
@@ -259,6 +295,8 @@ export class SignalHub {
     previous?.sock.close(CLOSE_REPLACED, "replaced");
     const elsewhere = this.byId.get(id);
     if (elsewhere && elsewhere !== previous) elsewhere.sock.close(CLOSE_REPLACED, "replaced");
+    // The new connection starts with an empty friend list; announce afresh once it declares one.
+    for (const old of new Set([previous, elsewhere])) if (old) this.retract(old);
     this.byId.set(id, conn);
 
     conn.peer = { id, name: pending.name };
@@ -316,7 +354,7 @@ export class SignalHub {
         if (JSON.stringify(msg.data).length > MAX_SIGNAL_BYTES) {
           return this.send(conn, { t: "error", code: "too_large" });
         }
-        const target = this.rooms.get(conn.roomKey)?.get(msg.to) ?? (conn.visible.has(msg.to) ? this.byId.get(msg.to) : undefined);
+        const target = this.rooms.get(conn.roomKey)?.get(msg.to) ?? this.mutualFriend(conn, msg.to);
         if (!target) return this.send(conn, { t: "error", code: "unknown_peer" });
         return this.send(target, { t: "signal", from: conn.peer.id, data: msg.data });
       }

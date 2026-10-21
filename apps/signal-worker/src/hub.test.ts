@@ -241,7 +241,8 @@ describe("SignalHub friends", () => {
     await tick();
     a.handle.close();
     await tick();
-    expect(kinds(b, "friend_left")).toHaveLength(0);
+    // The replacement is retracted and re-announced, so B never keeps a stale view of A.
+    expect(kinds(b, "friend_left")).toHaveLength(1);
     expect(kinds(a2, "friend")).toMatchObject([{ peer: { id: b.id } }]);
     a2.tx({ t: "signal", to: b.id, data: 2 });
     await tick();
@@ -307,3 +308,50 @@ describe("SignalHub pairing", () => {
     expect(b.inbox.filter((m) => m.t === "error")).toHaveLength(4);
   });
 });
+
+describe("SignalHub abuse limits", () => {
+  it("drops signals to a device that no longer lists the sender after reconnecting", async () => {
+    const hub = new SignalHub();
+    const a = await join(hub, "1.1.1.1", "alpha");
+    const b = await join(hub, "2.2.2.2", "bravo");
+    a.tx({ t: "friends", ids: [b.id] });
+    b.tx({ t: "friends", ids: [a.id] });
+    await tick();
+    const b2 = await join(hub, "2.2.2.2", "bravo", b.keys);
+    b2.tx({ t: "friends", ids: [] });
+    await tick();
+    expect(a.inbox.some((m) => m.t === "friend_left" && m.id === b.id)).toBe(true);
+    a.tx({ t: "signal", to: b.id, data: 1 });
+    await tick();
+    expect(b2.inbox.some((m) => m.t === "signal")).toBe(false);
+  });
+
+  it("limits code requests per network", async () => {
+    const hub = new SignalHub();
+    const a = await join(hub, "1.1.1.1", "alpha");
+    for (let i = 0; i < 8; i++) a.tx({ t: "pair" });
+    await tick();
+    expect(a.inbox.filter((m) => m.t === "code")).toHaveLength(6);
+    expect(a.inbox.some((m) => m.t === "error" && m.code === "bad_code")).toBe(true);
+  });
+
+  it("caps failed code entries across all networks", async () => {
+    const hub = new SignalHub({ maxGlobalFailedJoins: 2 });
+    const a = await join(hub, "1.1.1.1", "alpha");
+    a.tx({ t: "pair" });
+    await tick();
+    const real = (a.inbox.find((m) => m.t === "code") as { code: string }).code;
+    const guesser = async (ip: string) => {
+      const g = await join(hub, ip, "g");
+      g.tx({ t: "join", code: real === "000000" ? "000001" : "000000" });
+      return g;
+    };
+    await guesser("3.3.3.3");
+    await guesser("4.4.4.4");
+    const late = await join(hub, "5.5.5.5", "late");
+    late.tx({ t: "join", code: real });
+    await tick();
+    expect(late.inbox.some((m) => m.t === "paired")).toBe(false);
+  });
+});
+
