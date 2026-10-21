@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_OFFER_BYTES,
   BLOCK_SIZE,
   FRAME_HEADER_BYTES,
   MAX_OFFER_FILES,
@@ -72,6 +73,14 @@ describe("parseTransferMsg", () => {
     expect(parseTransferMsg({ t: "offer", id: 1, files: [{ path: "../a", size: 1 }] })).toBeNull();
     expect(parseTransferMsg({ t: "offer", id: 1, files: [{ path: "a", size: -1 }] })).toBeNull();
     expect(parseTransferMsg({ t: "offer", id: 1, files: [{ path: "a", size: 1.5 }] })).toBeNull();
+  });
+  it("caps the total announced size", () => {
+    const big = (size: number) => ({ t: "offer", id: 1, files: [{ path: "a", size }] });
+    expect(parseTransferMsg(big(MAX_OFFER_BYTES))).not.toBeNull();
+    expect(parseTransferMsg(big(MAX_OFFER_BYTES + 1))).toBeNull();
+    expect(parseTransferMsg(big(Number.MAX_SAFE_INTEGER))).toBeNull();
+    const two = { t: "offer", id: 1, files: [{ path: "a", size: MAX_OFFER_BYTES }, { path: "b", size: 1 }] };
+    expect(parseTransferMsg(two)).toBeNull();
   });
   it("parses block messages", () => {
     expect(parseTransferMsg({ t: "bh", id: 2, f: 0, b: 3, h: hash })).toEqual({ t: "bh", id: 2, f: 0, b: 3, h: hash });

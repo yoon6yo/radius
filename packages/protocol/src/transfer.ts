@@ -7,6 +7,8 @@ export const MAX_PAYLOAD_BYTES = MAX_MESSAGE_BYTES - FRAME_HEADER_BYTES;
 export const MAX_OFFER_FILES = 150;
 export const MAX_PATH_LENGTH = 256;
 export const SHA256_BYTES = 32;
+/** Total size an offer may announce; keeps per-block bookkeeping bounded before the user is even asked (4 TiB = 1M blocks). */
+export const MAX_OFFER_BYTES = 2 ** 42;
 /** Caps the resume bitmaps so an accept stays a single small control message. */
 export const MAX_HAVE_CHARS = 32 * 1024;
 
@@ -103,9 +105,11 @@ export function parseTransferMsg(raw: unknown): TransferMsg | null {
         return null;
       }
       const files: FileMeta[] = [];
+      let total = 0;
       for (const f of raw.files as unknown[]) {
         if (!isRecord(f) || !isSafePath(f.path) || !isU(f.size, Number.MAX_SAFE_INTEGER)) return null;
-        if (blockCount(f.size) > U32) return null;
+        total += f.size;
+        if (total > MAX_OFFER_BYTES) return null;
         files.push({ path: f.path, size: f.size });
       }
       return { t: "offer", id, files };
