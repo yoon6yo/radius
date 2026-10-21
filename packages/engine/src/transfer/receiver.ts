@@ -2,6 +2,8 @@ import {
   BLOCK_SIZE,
   blockCount,
   decodeFrame,
+  encodeHave,
+  SHA256_BYTES,
   type FrameHeader,
   fromBase64Url,
   type FileMeta,
@@ -9,14 +11,14 @@ import {
   type TransferMsg,
 } from "@radius/protocol";
 import { bytesEqual, rootHash, webCryptoSha256 } from "./hash";
-import type { Sha256, Sink, TransferResult } from "./types";
+import { StagingBusyError, type Sha256, type Sink, type TransferResult } from "./types";
 
 export interface ReceiverOptions {
   send(msg: TransferMsg): boolean;
   sink: Sink;
   sha256?: Sha256;
   /** Accept/decline decision (user prompt, free-space check). */
-  onOffer(files: FileMeta[]): Promise<"accept" | RejectReason>;
+  onOffer(files: FileMeta[], resumedBytes: number): Promise<"accept" | RejectReason>;
   onProgress?(verifiedBytes: number, totalBytes: number): void;
 }
 
@@ -43,7 +45,7 @@ export class Receiver {
   private partial = new Map<string, Pending>();
   /** Complete blocks waiting for their hash announcement. */
   private waiting = new Map<string, Uint8Array>();
-  private verified: Uint8Array[][] = [];
+  private verified: (Uint8Array | undefined)[][] = [];
   private verifiedBytes = 0;
   private totalBytes = 0;
   private chain: Promise<void> = Promise.resolve();
@@ -71,6 +73,13 @@ export class Receiver {
     void this.finish({ status: "cancelled" });
   }
 
+  /** Link is gone for good: stop without sending or discarding the staged blocks, so a re-offer can resume. */
+  interrupt(): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.resolve({ status: "failed", reason: "link_lost" });
+  }
+
   private enqueue(fn: () => Promise<void>): void {
     this.chain = this.chain.then(fn).catch((e: unknown) => {
       if (this.active && !this.finished) this.opts.send({ t: "cancel", id: this.id });
@@ -91,6 +100,12 @@ export class Receiver {
         const h = fromBase64Url(msg.h);
         if (!h || msg.f >= this.files.length || msg.b >= blockCount(this.files[msg.f]!.size)) return;
         const k = this.key(msg.f, msg.b);
+        const have = this.verified[msg.f]![msg.b];
+        if (have) {
+          if (bytesEqual(have, h) && (await this.onDisk(msg.f, msg.b, h))) this.opts.send({ t: "ack", id: this.id, f: msg.f, b: msg.b });
+          else await this.revoke(msg.f, msg.b);
+          return;
+        }
         this.expected.set(k, h);
         const data = this.waiting.get(k);
         if (data) {
@@ -112,7 +127,20 @@ export class Receiver {
 
   private async onOffer(id: number, files: FileMeta[]): Promise<void> {
     if (this.active) return;
-    const decision = await this.opts.onOffer(files);
+    let verified;
+    try {
+      verified = await this.loadResume(files);
+    } catch (e) {
+      if (!(e instanceof StagingBusyError)) throw e;
+      this.opts.send({ t: "reject", id, reason: "busy" });
+      await this.finish({ status: "rejected", reason: "busy" });
+      return;
+    }
+    const resumed = verified.reduce(
+      (n, blocks, f) => blocks.reduce((m, h, b) => (h ? m + this.blockLen(files[f]!, b) : m), n),
+      0,
+    );
+    const decision = await this.opts.onOffer(files, resumed);
     if (decision !== "accept") {
       this.opts.send({ t: "reject", id, reason: decision });
       await this.finish({ status: "rejected", reason: decision });
@@ -121,10 +149,48 @@ export class Receiver {
     this.id = id;
     this.files = files;
     this.totalBytes = files.reduce((n, f) => n + f.size, 0);
-    this.verified = files.map((f) => new Array<Uint8Array>(blockCount(f.size)));
+    this.verified = verified;
+    this.verifiedBytes = resumed;
     for (const [i, f] of files.entries()) await this.opts.sink.open(i, f.path, f.size);
     this.active = true;
-    this.opts.send({ t: "accept", id });
+    if (resumed > 0) this.opts.onProgress?.(resumed, this.totalBytes);
+    const have = resumed > 0 ? verified.map((blocks) => encodeHave(blocks.map((h) => h !== undefined))) : undefined;
+    this.opts.send(have ? { t: "accept", id, have } : { t: "accept", id });
+  }
+
+  private blockLen(file: FileMeta, b: number): number {
+    return Math.min(BLOCK_SIZE, file.size - b * BLOCK_SIZE);
+  }
+
+  /** Persisted hashes are untrusted input: ignore anything malformed. */
+  private async loadResume(files: FileMeta[]): Promise<(Uint8Array | undefined)[][]> {
+    const out = files.map((f) => new Array<Uint8Array | undefined>(blockCount(f.size)));
+    const prior = await this.opts.sink.resume?.(files).catch((e: unknown) => {
+      if (e instanceof StagingBusyError) throw e;
+      return undefined;
+    });
+    if (!prior || prior.length !== files.length) return out;
+    prior.forEach((blocks, f) => {
+      blocks.forEach((h, b) => {
+        if (h && h.length === SHA256_BYTES && b < out[f]!.length) out[f]![b] = h;
+      });
+    });
+    return out;
+  }
+
+  /** A recorded hash only counts if the staged bytes still hash to it (crash may have lost unflushed data). */
+  private async onDisk(f: number, b: number, want: Uint8Array): Promise<boolean> {
+    if (!this.opts.sink.read) return true;
+    const data = await this.opts.sink.read(f, b * BLOCK_SIZE, this.blockLen(this.files[f]!, b));
+    return bytesEqual(want, await this.sha(data));
+  }
+
+  /** Sender disagrees with a persisted block: forget it and ask for the data again. */
+  private async revoke(f: number, b: number): Promise<void> {
+    this.verified[f]![b] = undefined;
+    this.verifiedBytes -= this.blockLen(this.files[f]!, b);
+    await this.opts.sink.record?.(f, b, null);
+    this.opts.send({ t: "nack", id: this.id, f, b });
   }
 
   private async onFrame(h: FrameHeader, payload: Uint8Array): Promise<void> {
@@ -162,6 +228,7 @@ export class Receiver {
     }
     const len = data.length; // sinks may transfer (detach) the buffer
     await this.opts.sink.write(f, b * BLOCK_SIZE, data);
+    await this.opts.sink.record?.(f, b, got);
     this.verified[f]![b] = got;
     this.verifiedBytes += len;
     this.opts.onProgress?.(this.verifiedBytes, this.totalBytes);
@@ -169,8 +236,8 @@ export class Receiver {
   }
 
   private async onDone(rootB64: string): Promise<void> {
-    const all = this.verified.flat();
     const complete = this.verified.every((blocks) => blocks.every((h) => h !== undefined));
+    const all = this.verified.flat() as Uint8Array[];
     const root = fromBase64Url(rootB64);
     const ok = complete && root !== null && bytesEqual(root, await rootHash(this.sha, all));
     if (ok) for (const i of this.files.keys()) await this.opts.sink.close(i);
