@@ -25,7 +25,7 @@ export function HistoryList({ entries }: { entries: HistoryEntry[] }) {
                 </p>
               </div>
               {e.save && (
-                <Button variant="ghost" size="sm" className="h-8 shrink-0 rounded-full px-3 text-[13px]" onClick={() => void e.save?.()}>
+                <Button variant="ghost" size="sm" className="h-9 shrink-0 rounded-full px-3 text-[13px]" onClick={() => void e.save?.()}>
                   다시 저장
                 </Button>
               )}

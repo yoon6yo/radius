@@ -113,7 +113,7 @@ export function DeviceCard({ name, link, onConnect, onSend, onRemove }: DeviceCa
           )
         )}
         {onRemove && (
-          <button type="button" onClick={onRemove} className="shrink-0 rounded-full px-2 py-1 text-[13px] text-muted-foreground">
+          <button type="button" onClick={onRemove} className="shrink-0 min-h-9 rounded-full px-3 text-[13px] text-muted-foreground">
             삭제
           </button>
         )}

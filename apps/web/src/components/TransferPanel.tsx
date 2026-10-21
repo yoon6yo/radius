@@ -41,11 +41,11 @@ export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps
             {complete && <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{formatBytes(t.total)}</p>}
           </div>
           {t.save && (
-            <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[13px]" data-testid={`save-${name}`} onClick={() => void t.save?.()}>
+            <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px]" data-testid={`save-${name}`} onClick={() => void t.save?.()}>
               다시 저장
             </Button>
           )}
-          <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[13px] text-muted-foreground" onClick={onClose}>
+          <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px] text-muted-foreground" onClick={onClose}>
             닫기
           </Button>
         </div>

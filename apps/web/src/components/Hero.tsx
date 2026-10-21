@@ -71,7 +71,7 @@ export function Hero({ status, name, onRename }: { status: HeroStatus; name: str
             onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
             className="h-10 min-w-0 flex-1 rounded-full bg-primary-foreground px-4 text-lg font-semibold text-foreground outline-none"
           />
-          <button type="submit" className="h-10 shrink-0 rounded-full bg-primary-foreground/20 px-4 text-sm font-semibold">
+          <button type="submit" className="h-10 shrink-0 rounded-full bg-primary-foreground/20 px-4 text-sm font-semibold focus-visible:outline-primary-foreground">
             저장
           </button>
         </form>
@@ -87,7 +87,7 @@ export function Hero({ status, name, onRename }: { status: HeroStatus; name: str
                 setInvalid(false);
                 setEditing(true);
               }}
-              className="grid size-8 shrink-0 place-items-center rounded-full bg-primary-foreground/15"
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary-foreground/15 focus-visible:outline-primary-foreground"
             >
               <Pencil className="size-4" aria-hidden />
             </button>
@@ -99,7 +99,7 @@ export function Hero({ status, name, onRename }: { status: HeroStatus; name: str
           이름은 1~32자로 줄바꿈 없이 입력해 주세요.
         </p>
       )}
-      <p className="mt-3 flex items-center gap-2 text-sm">
+      <p role="status" className="mt-3 flex items-center gap-2 text-sm">
         <i className={`size-2 rounded-full ${live ? "bg-emerald-400" : "bg-amber-300"}`} />
         {STATUS_TEXT[status]}
       </p>

@@ -43,7 +43,7 @@ export function PairPanel({ code, error, onRequestCode, onJoin }: PairPanelProps
     <div className="mt-3 rounded-[var(--radius)] bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[15px] font-semibold">다른 네트워크 기기 연결</p>
-        <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[13px] text-muted-foreground" onClick={() => setOpen(false)}>
+        <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px] text-muted-foreground" onClick={() => setOpen(false)}>
           닫기
         </Button>
       </div>

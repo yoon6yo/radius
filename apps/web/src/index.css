@@ -130,6 +130,7 @@
 }
 .ripple { transform-box: fill-box; transform-origin: center; animation: ripple 3.6s cubic-bezier(0.22, 1, 0.36, 1) infinite; }
 @media (prefers-reduced-motion: reduce) {
+  .connected-flash { animation: none; }
   .ripple { animation: none; opacity: var(--ro, 0.2); transform: scale(var(--rs, 1.4)); }
 }
 
@@ -141,3 +142,5 @@
 @media (prefers-reduced-motion: reduce) {
   .connected-flash { animation: none; }
 }
+
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

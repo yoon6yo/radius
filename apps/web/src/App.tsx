@@ -69,7 +69,7 @@ export function App() {
                   <p className="truncate text-[15px] font-semibold text-muted-foreground">{d.name}</p>
                   <p className="text-[13px] text-muted-foreground">지금은 꺼져 있어요</p>
                 </div>
-                <button type="button" onClick={() => remove(d.id)} className="shrink-0 rounded-full px-2 py-1 text-[13px] text-muted-foreground">
+                <button type="button" onClick={() => remove(d.id)} className="shrink-0 min-h-9 rounded-full px-3 text-[13px] text-muted-foreground">
                   삭제
                 </button>
               </li>
