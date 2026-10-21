@@ -80,12 +80,15 @@ export function DeviceCard({ name, link, onConnect, onSend, onRemove }: DeviceCa
       onDragLeave={() => setOver(false)}
       onDrop={drop}
       data-expanded={showTransfer || undefined}
-      className={`rounded-[var(--radius)] bg-card px-4 py-3 ring-2 transition-[box-shadow,background-color] duration-300 ${
+      className={`rounded-[var(--radius)] bg-card px-4 py-3.5 shadow-[0_1px_3px_rgb(15_40_80/0.07)] ring-2 transition-[box-shadow,background-color] duration-300 ${
         over && connected ? "bg-accent ring-primary/50" : "ring-transparent"
       } ${connected ? "connected-flash" : ""}`}
     >
       <div className="flex items-center gap-3">
-        <i aria-hidden className={`size-2.5 shrink-0 rounded-full ${DOT[link?.state ?? "closed"]}`} />
+        <span aria-hidden className="relative grid size-11 shrink-0 place-items-center rounded-full bg-accent text-[17px] font-semibold text-primary">
+          {Array.from(name.trim())[0]?.toUpperCase() ?? "?"}
+          <i className={`absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full ring-2 ring-card ${DOT[link?.state ?? "closed"]}`} />
+        </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] font-semibold leading-tight">{name}</p>
           <p
