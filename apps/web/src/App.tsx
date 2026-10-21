@@ -49,44 +49,40 @@ export function App() {
         </ul>
       )}
 
-      <h2 className="mb-2 mt-9 px-1 text-[13px] font-semibold text-muted-foreground">저장된 기기</h2>
       {savedElsewhere.length > 0 && (
-        <ul className="flex flex-col gap-3" data-testid="saved">
-          {savedElsewhere.map((d) =>
-            online.has(d.id) ? (
-              <DeviceCard
-                key={d.id}
-                name={friendsOnline.find((f) => f.id === d.id)?.name ?? d.name}
-                link={links[d.id]}
-                onConnect={() => connect(d.id)}
-                onSend={(files) => sendFiles(d.id, files)}
-                onRemove={() => remove(d.id)}
-              />
-            ) : (
-              <li key={d.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-card px-4 py-3">
-                <i aria-hidden className="size-2.5 shrink-0 rounded-full bg-muted-foreground/40" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-muted-foreground">{d.name}</p>
-                  <p className="text-[13px] text-muted-foreground">지금은 꺼져 있어요</p>
-                </div>
-                <button type="button" onClick={() => remove(d.id)} className="shrink-0 min-h-9 rounded-full px-3 text-[13px] text-muted-foreground">
-                  삭제
-                </button>
-              </li>
-            ),
-          )}
-        </ul>
-      )}
-      {savedElsewhere.length === 0 && (
-        <p className="px-1 text-[13px] text-muted-foreground">파일을 주고받은 기기는 여기에 저장돼요.</p>
+        <>
+          <h2 className="mb-2 mt-9 px-1 text-[13px] font-semibold text-muted-foreground">저장된 기기</h2>
+          <ul className="flex flex-col gap-3" data-testid="saved">
+            {savedElsewhere.map((d) =>
+              online.has(d.id) ? (
+                <DeviceCard
+                  key={d.id}
+                  name={friendsOnline.find((f) => f.id === d.id)?.name ?? d.name}
+                  link={links[d.id]}
+                  onConnect={() => connect(d.id)}
+                  onSend={(files) => sendFiles(d.id, files)}
+                  onRemove={() => remove(d.id)}
+                />
+              ) : (
+                <li key={d.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-card px-4 py-3">
+                  <i aria-hidden className="size-2.5 shrink-0 rounded-full bg-muted-foreground/40" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-semibold text-muted-foreground">{d.name}</p>
+                    <p className="text-[13px] text-muted-foreground">지금은 꺼져 있어요</p>
+                  </div>
+                  <button type="button" onClick={() => remove(d.id)} className="shrink-0 min-h-9 rounded-full px-3 text-[13px] text-muted-foreground">
+                    삭제
+                  </button>
+                </li>
+              ),
+            )}
+          </ul>
+        </>
       )}
       <PairPanel code={signal.pairCode} error={signal.pairError} onRequestCode={signal.requestCode} onJoin={signal.joinCode} />
 
       <HistoryList entries={history} />
 
-      <p className="mt-4 hidden px-1 text-center text-[13px] text-muted-foreground [@media(hover:hover)]:block">
-        연결된 기기 위로 파일을 끌어다 놓으면 바로 보내요.
-      </p>
       <AcceptDialog offer={offer} onAnswer={respond} />
     </main>
   );
