@@ -3,13 +3,16 @@ const ROOT = "transfers";
 /** Peer-supplied names: drop control, format (bidi/zero-width) and line/paragraph separator chars. */
 const UNSAFE_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 const MAX_NAME_CHARS = 128;
+const TAIL_CHARS = 24;
+/** Also collapses whitespace runs so padding can't push the real extension out of view. */
 export function stripUnsafe(name: string): string {
-  return name.replace(UNSAFE_NAME_CHARS, "");
+  return name.replace(UNSAFE_NAME_CHARS, "").replace(/\s+/gu, " ").trim();
 }
-/** For display only; downloads keep the full name so the extension survives. */
+/** For display only; truncates the middle so the real extension always stays visible. */
 export function safeName(name: string): string {
   const clean = stripUnsafe(name);
-  return clean.length > MAX_NAME_CHARS ? `${clean.slice(0, MAX_NAME_CHARS - 1)}…` : clean;
+  if (clean.length <= MAX_NAME_CHARS) return clean;
+  return `${clean.slice(0, MAX_NAME_CHARS - TAIL_CHARS - 1)}…${clean.slice(-TAIL_CHARS)}`;
 }
 
 async function dirHandle(dir: string): Promise<FileSystemDirectoryHandle> {
