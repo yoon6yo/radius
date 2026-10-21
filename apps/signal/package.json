@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
+    "dev": "TRUST_PROXY=1 node --watch src/main.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "build": "tsc --noEmit",
@@ -12,6 +13,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@radius/engine": "workspace:*",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
     "eslint": "^10.13.0",
