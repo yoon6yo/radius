@@ -18,6 +18,8 @@ export interface TransferView {
 }
 
 export interface PeerTransferOptions {
+  /** Authenticated id of the remote peer; scopes resumable staging. */
+  peerId: string;
   onView(v: TransferView): void;
   /** Dev stand-in for the M6 accept sheet. */
   ask(files: FileMeta[]): boolean;
@@ -92,7 +94,7 @@ export class PeerTransfer {
   }
 
   private startReceiving(): void {
-    const sink = new OpfsSink();
+    const sink = new OpfsSink(this.opts.peerId);
     let name = "";
     let total = 0;
     let paths: string[] = [];

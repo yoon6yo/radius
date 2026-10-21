@@ -143,7 +143,8 @@ export class Receiver {
     const decision = await this.opts.onOffer(files, resumed);
     if (decision !== "accept") {
       this.opts.send({ t: "reject", id, reason: decision });
-      await this.finish({ status: "rejected", reason: decision });
+      // Declining a resume must not destroy the staged blocks.
+      await this.finish({ status: "rejected", reason: decision }, resumed > 0);
       return;
     }
     this.id = id;
@@ -245,10 +246,10 @@ export class Receiver {
     await this.finish(ok ? { status: "complete" } : { status: "failed", reason: "verify_failed" });
   }
 
-  private async finish(r: TransferResult): Promise<void> {
+  private async finish(r: TransferResult, keepStaging = false): Promise<void> {
     if (this.finished) return;
     this.finished = true;
-    if (r.status !== "complete") await this.opts.sink.abort().catch(() => undefined);
+    if (r.status !== "complete" && !keepStaging) await this.opts.sink.abort().catch(() => undefined);
     this.resolve(r);
   }
 }

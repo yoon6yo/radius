@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
+import { FAILURE_HINTS, PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
 import { safeName, sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
@@ -9,6 +9,8 @@ export interface PeerLink {
   /** Echo replies received per channel: "c" = control, "0".. = data index. */
   pongs: Record<string, number>;
   transfer: TransferView | null;
+  /** User-facing hint once the link failed; cleared on the next attempt. */
+  failure: string | null;
 }
 
 /** Dev-only: one PeerConnection per remote peer with a ping/pong echo over every channel. */
@@ -19,7 +21,7 @@ export function usePeers(signal: SignalState) {
   const [links, setLinks] = useState<Record<string, PeerLink>>({});
 
   const patch = useCallback((id: string, fn: (l: PeerLink) => PeerLink) => {
-    setLinks((all) => ({ ...all, [id]: fn(all[id] ?? { state: "connecting", pongs: {}, transfer: null }) }));
+    setLinks((all) => ({ ...all, [id]: fn(all[id] ?? { state: "connecting", pongs: {}, transfer: null, failure: null }) }));
   }, []);
 
   const open = useCallback(
@@ -31,6 +33,7 @@ export function usePeers(signal: SignalState) {
       const pong = (key: string) =>
         patch(peerId, (l) => ({ ...l, pongs: { ...l.pongs, [key]: (l.pongs[key] ?? 0) + 1 } }));
       const xfer = new PeerTransfer({
+        peerId,
         onView: (transfer) => patch(peerId, (l) => ({ ...l, transfer })),
         ask: (files) => {
           const list = files.slice(0, 10).map((f) => `${safeName(f.path)} (${f.size} B)`);
@@ -44,7 +47,8 @@ export function usePeers(signal: SignalState) {
         sendSignal: (data) => sendSignal(peerId, data),
         onState: (state) => {
           if (state === "failed" || state === "closed") xfer.interrupt();
-          patch(peerId, (l) => ({ ...l, state }));
+          const failure = state === "failed" ? FAILURE_HINTS[conn.failureReason] : null;
+          patch(peerId, (l) => ({ ...l, state, failure }));
         },
         onControl: (d) => {
           if (typeof d !== "string") return;
@@ -61,7 +65,7 @@ export function usePeers(signal: SignalState) {
       xfer.attach(conn);
       conns.current.set(peerId, conn);
       xfers.current.set(peerId, xfer);
-      patch(peerId, () => ({ state: "connecting", pongs: {}, transfer: null }));
+      patch(peerId, () => ({ state: "connecting", pongs: {}, transfer: null, failure: null }));
       return conn;
     },
     [self, sendSignal, patch],

@@ -17,7 +17,7 @@ export function App() {
         {peers.map((p) => {
           const link = links[p.id];
           return (
-            <li key={p.id} className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3">
+            <li key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3">
               <span className="flex-1">{p.name}</span>
               <span className="text-xs text-neutral-500" data-testid={`link-${p.name}`}>
                 {link?.state ?? "idle"}
@@ -46,6 +46,11 @@ export function App() {
                   ? `${link.transfer.direction} ${link.transfer.status} ${link.transfer.done}/${link.transfer.total}`
                   : ""}
               </span>
+              {link?.failure && (
+                <p role="alert" className="basis-full text-xs text-red-600" data-testid={`failure-${p.name}`}>
+                  {link.failure}
+                </p>
+              )}
             </li>
           );
         })}

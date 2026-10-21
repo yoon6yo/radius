@@ -1,3 +1,4 @@
+import { diagnoseFailure, parseCandidate, type CandidateInfo, type FailureReason } from "./diagnose";
 import { isPolite, parseRtcSignal } from "./negotiation";
 import type { PeerConnectionOptions, PeerState, RtcSignal } from "./types";
 
@@ -27,6 +28,8 @@ export class PeerConnection {
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private readyWaiters: (() => void)[] = [];
+  private readonly localCandidates: CandidateInfo[] = [];
+  private readonly remoteCandidates: CandidateInfo[] = [];
 
   constructor(opts: PeerConnectionOptions) {
     this.opts = opts;
@@ -41,12 +44,21 @@ export class PeerConnection {
     }
 
     this.pc.onnegotiationneeded = () => void this.negotiate();
-    this.pc.onicecandidate = (e) => this.sendRtc({ t: "ice", candidate: e.candidate?.toJSON() ?? null });
+    this.pc.onicecandidate = (e) => {
+      const info = e.candidate ? parseCandidate(e.candidate.candidate) : null;
+      if (info) this.localCandidates.push(info);
+      this.sendRtc({ t: "ice", candidate: e.candidate?.toJSON() ?? null });
+    };
     this.pc.oniceconnectionstatechange = () => this.onIceState();
   }
 
   get state(): PeerState {
     return this.state_;
+  }
+
+  /** Why the link failed, from the ICE candidates seen so far; meaningful once `state` is `failed`. */
+  get failureReason(): FailureReason {
+    return diagnoseFailure({ local: this.localCandidates, remote: this.remoteCandidates });
   }
 
   sendControl(data: string | ArrayBuffer): boolean {
@@ -195,6 +207,8 @@ export class PeerConnection {
   }
 
   private async onRemoteCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    const info = candidate.candidate ? parseCandidate(candidate.candidate) : null;
+    if (info) this.remoteCandidates.push(info);
     try {
       await this.pc.addIceCandidate(candidate);
     } catch (e) {

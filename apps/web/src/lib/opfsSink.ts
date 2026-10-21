@@ -11,9 +11,12 @@ type Call =
   | { op: "close"; idx: number }
   | { op: "abort" };
 
-/** Stable per-offer staging dir name: the same files offered again resume the same staging. */
-export async function stagingDir(files: FileMeta[]): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(files.map((f) => [f.path, f.size])));
+/**
+ * Stable staging dir name: the same peer re-offering the same files resumes the same staging.
+ * The peer id is part of the key so another peer can neither probe nor disturb it.
+ */
+export async function stagingDir(peerId: string, files: FileMeta[]): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([peerId, files.map((f) => [f.path, f.size])]));
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return `r-${Array.from(digest.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
@@ -22,6 +25,8 @@ export async function stagingDir(files: FileMeta[]): Promise<string> {
 export class OpfsSink implements Sink {
   /** Set by {@link resume} once the offer is known. */
   dir = "";
+
+  constructor(private readonly peerId: string) {}
   private worker: Worker | null = null;
   private releaseLock: (() => void) | null = null;
   /** Only the holder of the staging lock may delete it. */
@@ -30,7 +35,7 @@ export class OpfsSink implements Sink {
   private readonly waiting = new Map<number, { ok(v: unknown): void; fail(e: Error): void }>();
 
   async resume(files: FileMeta[]): Promise<(Uint8Array | undefined)[][]> {
-    this.dir = await stagingDir(files);
+    this.dir = await stagingDir(this.peerId, files);
     await this.lock();
     const found = await this.call<[number, number, Uint8Array][]>({ op: "resume", files });
     const out = files.map(() => [] as (Uint8Array | undefined)[]);
