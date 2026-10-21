@@ -1,8 +1,5 @@
 export const MAX_NAME_LENGTH = 32;
 export const MAX_SIGNAL_BYTES = 16 * 1024;
-/** Saved devices a client may ask the server to watch. */
-export const MAX_FRIENDS = 200;
-export const PAIR_CODE_LENGTH = 6;
 /** Prefix of the bytes a device signs to prove key ownership: AUTH_CONTEXT + nonce. */
 export const AUTH_CONTEXT = "radius-auth-v1:";
 
@@ -15,12 +12,7 @@ export type ClientMsg =
   | { t: "hello"; pub: string; name: string }
   | { t: "auth"; sig: string }
   | { t: "rename"; name: string }
-  | { t: "signal"; to: string; data: unknown }
-  /** Devices this client has saved. Two devices see each other across networks only if each lists the other. */
-  | { t: "friends"; ids: string[] }
-  /** Ask for a short-lived pairing code. */
-  | { t: "pair" }
-  | { t: "join"; code: string };
+  | { t: "signal"; to: string; data: unknown };
 
 export type ServerMsg =
   | { t: "challenge"; nonce: string }
@@ -28,15 +20,9 @@ export type ServerMsg =
   | { t: "peer"; peer: PeerInfo }
   | { t: "left"; id: string }
   | { t: "signal"; from: string; data: unknown }
-  /** A mutually saved device is online (or renamed). */
-  | { t: "friend"; peer: PeerInfo }
-  | { t: "friend_left"; id: string }
-  | { t: "code"; code: string; ttl: number }
-  /** Pairing succeeded: both sides receive the other's identity. */
-  | { t: "paired"; peer: PeerInfo }
   | { t: "error"; code: ErrorCode };
 
-export type ErrorCode = "bad_message" | "auth_failed" | "room_full" | "unknown_peer" | "too_large" | "bad_code";
+export type ErrorCode = "bad_message" | "auth_failed" | "room_full" | "unknown_peer" | "too_large";
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
 const DEVICE_ID = /^[0-9a-f]{64}$/;
@@ -125,23 +111,9 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
     }
     case "signal":
       return isDeviceId(raw.to) && raw.data !== undefined ? { t: "signal", to: raw.to, data: raw.data } : null;
-    case "friends":
-      return Array.isArray(raw.ids) && raw.ids.length <= MAX_FRIENDS && raw.ids.every(isDeviceId)
-        ? { t: "friends", ids: [...new Set(raw.ids as string[])] }
-        : null;
-    case "pair":
-      return { t: "pair" };
-    case "join":
-      return isPairCode(raw.code) ? { t: "join", code: raw.code } : null;
     default:
       return null;
   }
-}
-
-const PAIR_CODE = /^\d{6}$/;
-
-export function isPairCode(v: unknown): v is string {
-  return typeof v === "string" && PAIR_CODE.test(v);
 }
 
 export function parseServerMsg(raw: unknown): ServerMsg | null {
@@ -164,18 +136,6 @@ export function parseServerMsg(raw: unknown): ServerMsg | null {
       return isDeviceId(raw.id) ? { t: "left", id: raw.id } : null;
     case "signal":
       return isDeviceId(raw.from) && raw.data !== undefined ? { t: "signal", from: raw.from, data: raw.data } : null;
-    case "friend": {
-      const p = peer(raw.peer);
-      return p ? { t: "friend", peer: p } : null;
-    }
-    case "friend_left":
-      return isDeviceId(raw.id) ? { t: "friend_left", id: raw.id } : null;
-    case "code":
-      return isPairCode(raw.code) && typeof raw.ttl === "number" ? { t: "code", code: raw.code, ttl: raw.ttl } : null;
-    case "paired": {
-      const p = peer(raw.peer);
-      return p ? { t: "paired", peer: p } : null;
-    }
     case "error":
       return typeof raw.code === "string" ? { t: "error", code: raw.code as ErrorCode } : null;
     default:

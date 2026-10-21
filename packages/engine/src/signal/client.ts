@@ -2,7 +2,6 @@ import {
   AUTH_CONTEXT,
   fromBase64Url,
   parseServerMsg,
-  type ErrorCode,
   type PeerInfo,
   type ServerMsg,
 } from "@radius/protocol";
@@ -23,13 +22,6 @@ export interface SignalClientOptions {
   onStatus?(status: SignalStatus): void;
   onPeers?(peers: PeerInfo[]): void;
   onSignal?(from: string, data: unknown): void;
-  /** Saved devices that are online right now (mutual friends, any network). */
-  onFriends?(friends: PeerInfo[]): void;
-  /** Own pairing code, valid for `ttlSec`. */
-  onCode?(code: string, ttlSec: number): void;
-  /** Another device completed pairing with this one. */
-  onPaired?(peer: PeerInfo): void;
-  onError?(code: ErrorCode): void;
   WebSocketImpl?: typeof WebSocket;
   /** Reconnect delay in ms for the given zero-based attempt. */
   backoffMs?(attempt: number): number;
@@ -48,8 +40,6 @@ export class SignalClient {
   private attempt = 0;
   private stopped = true;
   private readonly peerMap = new Map<string, PeerInfo>();
-  private readonly friendMap = new Map<string, PeerInfo>();
-  private friendIds: string[] = [];
   private selfId_ = "";
   private status_: SignalStatus = "offline";
   private readonly opts: SignalClientOptions;
@@ -66,9 +56,6 @@ export class SignalClient {
   }
   get peers(): PeerInfo[] {
     return [...this.peerMap.values()];
-  }
-  get friends(): PeerInfo[] {
-    return [...this.friendMap.values()];
   }
 
   start(): void {
@@ -96,21 +83,6 @@ export class SignalClient {
     return this.status_ === "online" && this.trySend({ t: "rename", name });
   }
 
-  /** Saved device ids. Remembered and re-sent on every reconnect; presence needs the other side to save this device too. */
-  setFriends(ids: readonly string[]): void {
-    const same = ids.length === this.friendIds.length && ids.every((id, i) => id === this.friendIds[i]);
-    this.friendIds = [...ids];
-    if (!same && this.status_ === "online") this.trySend({ t: "friends", ids: this.friendIds });
-  }
-
-  requestCode(): boolean {
-    return this.status_ === "online" && this.trySend({ t: "pair" });
-  }
-
-  joinCode(code: string): boolean {
-    return this.status_ === "online" && this.trySend({ t: "join", code });
-  }
-
   private trySend(msg: unknown): boolean {
     if (this.ws?.readyState !== 1) return false;
     this.ws.send(JSON.stringify(msg));
@@ -127,19 +99,12 @@ export class SignalClient {
     this.opts.onPeers?.(this.peers);
   }
 
-  private emitFriends(): void {
-    this.opts.onFriends?.(this.friends);
-  }
-
   private reset(status: SignalStatus): void {
     const hadPeers = this.peerMap.size > 0;
-    const hadFriends = this.friendMap.size > 0;
     this.peerMap.clear();
-    this.friendMap.clear();
     this.selfId_ = "";
     this.setStatus(status);
     if (hadPeers) this.emitPeers();
-    if (hadFriends) this.emitFriends();
   }
 
   private connect(): void {
@@ -200,7 +165,6 @@ export class SignalClient {
         this.peerMap.clear();
         for (const p of msg.peers) this.peerMap.set(p.id, p);
         this.setStatus("online");
-        if (this.friendIds.length > 0) this.trySend({ t: "friends", ids: this.friendIds });
         return this.emitPeers();
       case "peer":
         this.peerMap.set(msg.peer.id, msg.peer);
@@ -210,18 +174,8 @@ export class SignalClient {
         return;
       case "signal":
         return this.opts.onSignal?.(msg.from, msg.data);
-      case "friend":
-        this.friendMap.set(msg.peer.id, msg.peer);
-        return this.emitFriends();
-      case "friend_left":
-        if (this.friendMap.delete(msg.id)) this.emitFriends();
-        return;
-      case "code":
-        return this.opts.onCode?.(msg.code, msg.ttl);
-      case "paired":
-        return this.opts.onPaired?.(msg.peer);
       case "error":
-        return this.opts.onError?.(msg.code);
+        return;
     }
   }
 }
