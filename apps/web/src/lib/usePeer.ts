@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FAILURE_HINTS, PeerConnection, parseRtcSignal, sdpFingerprint, type PeerState } from "@radius/engine";
 import type { IncomingOffer } from "@/components/AcceptDialog";
+import { nameSkeleton } from "@radius/protocol";
 import { sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
@@ -28,16 +29,26 @@ export function usePeers(signal: SignalState) {
   }, [signal.peers]);
 
   /** One consent prompt at a time; a second offer while one is open is declined. */
-  const ask = useCallback((peerId: string, files: IncomingOffer["files"]): Promise<boolean> => {
-    if (answer.current) return Promise.resolve(false);
-    const from = peersRef.current.find((p) => p.id === peerId)?.name ?? peerId.slice(0, 8);
+  const ask = useCallback((peerId: string, files: IncomingOffer["files"], signal: AbortSignal): Promise<boolean> => {
+    if (answer.current || signal.aborted) return Promise.resolve(false);
+    const peers = peersRef.current;
+    const name = peers.find((p) => p.id === peerId)?.name;
+    const from = name ?? peerId.slice(0, 8);
+    const skeleton = name === undefined ? "" : nameSkeleton(name);
+    const duplicate = name !== undefined && peers.some((p) => p.id !== peerId && nameSkeleton(p.name) === skeleton);
     return new Promise((resolve) => {
-      answer.current = (accept) => {
-        answer.current = null;
-        setOffer(null);
+      const settle = (accept: boolean) => {
+        signal.removeEventListener("abort", onAbort);
+        if (answer.current === settle) {
+          answer.current = null;
+          setOffer(null);
+        }
         resolve(accept);
       };
-      setOffer({ from, files });
+      const onAbort = () => settle(false);
+      signal.addEventListener("abort", onAbort);
+      answer.current = settle;
+      setOffer({ from, peerId, duplicate, files });
     });
   }, []);
 
@@ -58,7 +69,7 @@ export function usePeers(signal: SignalState) {
       const xfer = new PeerTransfer({
         peerId,
         onView: (transfer) => patch(peerId, (l) => ({ ...l, transfer })),
-        ask: (files) => ask(peerId, files),
+        ask: (files, signal) => ask(peerId, files, signal),
       });
       const conn: PeerConnection = new PeerConnection({
         selfId: self.id,

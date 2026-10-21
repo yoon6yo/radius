@@ -49,7 +49,37 @@ export function sanitizeName(raw: string): string | null {
   if (name.length === 0 || name.length > MAX_NAME_LENGTH) return null;
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+  // Bidi controls and zero-width characters let a name masquerade as another one.
+  if (/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/.test(name)) return null;
+  // Invisible format/ignorable code points; emoji variation selectors stay allowed.
+  if (/[\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(name.replace(/[\ufe0e\ufe0f]/g, ""))) return null;
   return name;
+}
+
+/** Latin lookalikes for common Cyrillic/Greek letters (subset of UTS #39 confusables). */
+const CONFUSABLE_MAP: Readonly<Record<string, string>> = {
+  "\u0430": "a", "\u0432": "b", "\u0435": "e", "\u043a": "k", "\u043c": "m", "\u043d": "h", "\u043e": "o",
+  "\u0440": "p", "\u0441": "c", "\u0442": "t", "\u0443": "y", "\u0445": "x", "\u0456": "i", "\u0458": "j",
+  "\u0455": "s", "\u04cf": "l", "\u0501": "d", "\u051b": "q", "\u051d": "w",
+  "\u03b1": "a", "\u03b2": "b", "\u03b3": "y", "\u03b5": "e", "\u03b9": "i", "\u03ba": "k", "\u03bd": "v",
+  "\u03bf": "o", "\u03c1": "p", "\u03c4": "t", "\u03c5": "u", "\u03c7": "x",
+};
+
+/** Canonical form for impersonation checks: equal skeletons mean visually-equal names. */
+export function nameSkeleton(name: string): string {
+  const folded = name
+    .normalize("NFKC")
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
+    .toLowerCase()
+    .normalize("NFKC");
+  let out = "";
+  for (const ch of folded) out += CONFUSABLE_MAP[ch] ?? ch;
+  return out.replace(/\s+/g, " ");
+}
+
+/** Device ID as 4-char hex groups for out-of-band comparison (first 80 bits). */
+export function deviceFingerprint(id: string): string {
+  return (id.slice(0, 20).match(/.{1,4}/g) ?? []).join(" ");
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
