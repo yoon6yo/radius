@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { BLOCK_SIZE, MAX_PAYLOAD_BYTES, type TransferMsg } from "@radius/protocol";
+import { BLOCK_SIZE, MAX_PAYLOAD_BYTES, encodeFrame, type TransferMsg } from "@radius/protocol";
 import { bytesEqual } from "./hash";
-import { Receiver } from "./receiver";
+import { MAX_INFLIGHT_BLOCKS, Receiver } from "./receiver";
 import { Sender, type SendFile } from "./sender";
 import type { DataLink, FileSource, Sink } from "./types";
 
@@ -188,5 +188,23 @@ describe("transfer", () => {
     h.sender.start();
     h.sender.handleControl({ t: "cancel", id: 99 });
     expect(await h.sender.result).toEqual({ status: "complete" });
+  });
+
+  it("fails and notifies the sender when too many blocks are left half-sent", async () => {
+    const sent: TransferMsg[] = [];
+    const sink = new MemSink();
+    const r = new Receiver({
+      send: (m) => (sent.push(m), true),
+      sink,
+      onOffer: () => Promise.resolve("accept"),
+    });
+    const blocks = MAX_INFLIGHT_BLOCKS + 1;
+    r.handleControl({ t: "offer", id: 1, files: [{ path: "big", size: BLOCK_SIZE * blocks }] });
+    for (let b = 0; b < blocks; b++) {
+      r.handleData(encodeFrame({ flags: 0, fileIdx: 0, transferId: 1, blockIdx: b, offset: 0 }, new Uint8Array(10)));
+    }
+    expect(await r.result).toEqual({ status: "failed", reason: "too_many_blocks" });
+    expect(sent.at(-1)).toEqual({ t: "cancel", id: 1 });
+    expect(sink.aborted).toBe(true);
   });
 });

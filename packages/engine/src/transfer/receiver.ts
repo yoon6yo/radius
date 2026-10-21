@@ -20,6 +20,9 @@ export interface ReceiverOptions {
   onProgress?(verifiedBytes: number, totalBytes: number): void;
 }
 
+/** Blocks being assembled or awaiting their hash; bounds receiver memory to ~64 MiB. */
+export const MAX_INFLIGHT_BLOCKS = 16;
+
 interface Pending {
   buf: Uint8Array;
   seen: Set<number>;
@@ -69,7 +72,10 @@ export class Receiver {
   }
 
   private enqueue(fn: () => Promise<void>): void {
-    this.chain = this.chain.then(fn).catch((e: unknown) => this.finish({ status: "failed", reason: String(e) }));
+    this.chain = this.chain.then(fn).catch((e: unknown) => {
+      if (this.active && !this.finished) this.opts.send({ t: "cancel", id: this.id });
+      return this.finish({ status: "failed", reason: e instanceof Error ? e.message : String(e) });
+    });
   }
 
   private key(f: number, b: number): string {
@@ -131,6 +137,7 @@ export class Receiver {
     const k = this.key(h.fileIdx, h.blockIdx);
     let p = this.partial.get(k);
     if (!p) {
+      if (this.partial.size + this.waiting.size >= MAX_INFLIGHT_BLOCKS) throw new Error("too_many_blocks");
       p = { buf: new Uint8Array(blockLen), seen: new Set(), got: 0 };
       this.partial.set(k, p);
     }

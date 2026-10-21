@@ -6,7 +6,7 @@ import {
   type TransferResult,
 } from "@radius/engine";
 import { MAX_OFFER_FILES, parseTransferMsg, type FileMeta } from "@radius/protocol";
-import { exportTransfer, freeBytes } from "./exportOpfs";
+import { exportTransfer, freeBytes, safeName } from "./exportOpfs";
 import { OpfsSink } from "./opfsSink";
 
 export interface TransferView {
@@ -97,7 +97,7 @@ export class PeerTransfer {
       send: (m) => this.conn?.sendControl(JSON.stringify(m)) ?? false,
       onOffer: async (files) => {
         total = files.reduce((n, f) => n + f.size, 0);
-        name = files.length === 1 ? files[0]!.path : `${files.length} files`;
+        name = files.length === 1 ? safeName(files[0]!.path) : `${files.length} files`;
         paths = files.map((f) => f.path);
         if ((await freeBytes()) < total) return "no_space";
         if (!this.opts.ask(files)) return "declined";

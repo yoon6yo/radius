@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
-import { purgeTransfers } from "./exportOpfs";
+import { purgeTransfers, safeName } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
 
@@ -32,7 +32,11 @@ export function usePeers(signal: SignalState) {
         patch(peerId, (l) => ({ ...l, pongs: { ...l.pongs, [key]: (l.pongs[key] ?? 0) + 1 } }));
       const xfer = new PeerTransfer({
         onView: (transfer) => patch(peerId, (l) => ({ ...l, transfer })),
-        ask: (files) => window.confirm(`Receive ${files.length} file(s) from ${peerId.slice(0, 8)}?`),
+        ask: (files) => {
+          const list = files.slice(0, 10).map((f) => `${safeName(f.path)} (${f.size} B)`);
+          if (files.length > list.length) list.push(`… +${files.length - list.length} more`);
+          return window.confirm(`Receive from ${peerId.slice(0, 8)}?\n${list.join("\n")}`);
+        },
       });
       const conn: PeerConnection = new PeerConnection({
         selfId: self.id,
