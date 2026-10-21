@@ -33,9 +33,13 @@ export function PairPanel({ code, error, onRequestCode, onJoin }: PairPanelProps
 
   if (!open) {
     return (
-      <Button variant="ghost" className="mt-3 h-10 rounded-full px-4 text-[14px] text-muted-foreground" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="mt-6 self-start rounded-md px-1 py-2 text-[13px] text-muted-foreground underline-offset-4 hover:underline"
+        onClick={() => setOpen(true)}
+      >
         다른 네트워크 기기 연결
-      </Button>
+      </button>
     );
   }
 
