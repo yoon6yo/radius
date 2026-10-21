@@ -1,6 +1,6 @@
 import type { webcrypto } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { SignalClient, type DeviceIdentity, type SignalStatus } from "@radius/engine";
+import { SignalClient, type DeviceIdentity, type SignalStatus } from "@radius/engine/signal";
 import { toBase64Url, type PeerInfo } from "@radius/protocol";
 import { startSignalServer, type SignalServer } from "./server.ts";
 
