@@ -1,19 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": [
-      "ES2023"
-    ],
-    "types": [
-      "@cloudflare/workers-types"
-    ],
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"],
     "noEmit": true,
     "erasableSyntaxOnly": true
   },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "src/client.hub.test.ts"
-  ]
+  "include": ["src"]
 }

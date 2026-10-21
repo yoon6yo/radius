@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "build": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
@@ -17,8 +17,6 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261019.1",
     "@eslint/js": "^10.0.1",
-    "@radius/engine": "workspace:*",
-    "@types/node": "^26.6.5",
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
     "typescript": "~6.0.3",

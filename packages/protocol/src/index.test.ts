@@ -76,26 +76,3 @@ describe("parseServerMsg", () => {
     expect(parseServerMsg({ t: "ready", id: ID, peers: [{ id: "x", name: "n" }] })).toBeNull();
   });
 });
-
-describe("friends and pairing messages", () => {
-  it("parses friends, deduplicating and bounding", () => {
-    expect(parseClientMsg({ t: "friends", ids: [ID, ID] })).toEqual({ t: "friends", ids: [ID] });
-    expect(parseClientMsg({ t: "friends", ids: ["nope"] })).toBeNull();
-    expect(parseClientMsg({ t: "friends", ids: Array.from({ length: 201 }, () => ID) })).toBeNull();
-    expect(parseClientMsg({ t: "friends" })).toBeNull();
-  });
-  it("accepts only six-digit codes", () => {
-    expect(parseClientMsg({ t: "join", code: "012345" })).toEqual({ t: "join", code: "012345" });
-    for (const code of ["12345", "1234567", "12345a", 123456, undefined]) expect(parseClientMsg({ t: "join", code })).toBeNull();
-    expect(parseClientMsg({ t: "pair" })).toEqual({ t: "pair" });
-  });
-  it("parses server friend, code and paired messages", () => {
-    const peer = { id: ID, name: "고래" };
-    expect(parseServerMsg({ t: "friend", peer })).toEqual({ t: "friend", peer });
-    expect(parseServerMsg({ t: "friend_left", id: ID })).toEqual({ t: "friend_left", id: ID });
-    expect(parseServerMsg({ t: "code", code: "123456", ttl: 120 })).toEqual({ t: "code", code: "123456", ttl: 120 });
-    expect(parseServerMsg({ t: "code", code: "abc", ttl: 120 })).toBeNull();
-    expect(parseServerMsg({ t: "paired", peer })).toEqual({ t: "paired", peer });
-    expect(parseServerMsg({ t: "paired", peer: { id: "x", name: "y" } })).toBeNull();
-  });
-});

@@ -9,8 +9,6 @@ interface DeviceCardProps {
   link: PeerLink | undefined;
   onConnect(): void;
   onSend(files: File[]): void;
-  /** Present for saved devices: forgets this device. */
-  onRemove?(): void;
 }
 
 const DOT: Record<PeerLink["state"], string> = {
@@ -53,7 +51,7 @@ export function subText(link: PeerLink | undefined, slow: boolean): string {
   }
 }
 
-export function DeviceCard({ name, link, onConnect, onSend, onRemove }: DeviceCardProps) {
+export function DeviceCard({ name, link, onConnect, onSend }: DeviceCardProps) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [closedId, setClosedId] = useState<number | null>(null);
@@ -114,11 +112,6 @@ export function DeviceCard({ name, link, onConnect, onSend, onRemove }: DeviceCa
               {failed && link ? "다시 시도" : "연결"}
             </Button>
           )
-        )}
-        {onRemove && (
-          <button type="button" onClick={onRemove} className="shrink-0 min-h-9 rounded-full px-3 text-[13px] text-muted-foreground">
-            삭제
-          </button>
         )}
       </div>
       <input
