@@ -12,6 +12,9 @@ import {
 import { rootHash, webCryptoSha256 } from "./hash";
 import type { Codec, DataLink, FileSource, Sha256, TransferResult } from "./types";
 
+/** A larger per-channel burst makes Chromium drop packets at startup and stall in SCTP retransmit backoff for seconds. */
+const DEFAULT_HIGH_WATERMARK = 256 * 1024;
+
 export interface SendFile {
   path: string;
   source: FileSource;
@@ -215,7 +218,7 @@ export class Sender {
   /** Least-buffered open channel; waits for drain/ready. Returns -1 once finished. */
   private async acquireChannel(): Promise<number> {
     const { link } = this.opts;
-    const high = this.opts.highWatermark ?? 1024 * 1024;
+    const high = this.opts.highWatermark ?? DEFAULT_HIGH_WATERMARK;
     while (!this.finished) {
       let best = -1;
       for (let c = 0; c < link.channelCount; c++) {
