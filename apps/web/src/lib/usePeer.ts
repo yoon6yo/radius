@@ -28,7 +28,7 @@ export interface HistoryEntry {
 }
 
 /** Dev-only: one PeerConnection per remote peer with a ping/pong echo over every channel. */
-export function usePeers(signal: SignalState) {
+export function usePeers(signal: SignalState, onCompleted?: (peer: { id: string; name: string }) => void) {
   const { self, status, sendSignal, setSignalHandler } = signal;
   const conns = useRef(new Map<string, PeerConnection>());
   const xfers = useRef(new Map<string, PeerTransfer>());
@@ -37,6 +37,10 @@ export function usePeers(signal: SignalState) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const recorded = useRef(new Set<string>());
   const answer = useRef<((accept: boolean) => void) | null>(null);
+  const completedRef = useRef(onCompleted);
+  useEffect(() => {
+    completedRef.current = onCompleted;
+  }, [onCompleted]);
   const peersRef = useRef(signal.peers);
   useEffect(() => {
     peersRef.current = signal.peers;
@@ -98,6 +102,7 @@ export function usePeers(signal: SignalState) {
             ...(transfer.save ? { save: transfer.save } : {}),
           };
           setHistory((h) => [entry, ...h]);
+          if (peerName !== "알 수 없는 기기") completedRef.current?.({ id: peerId, name: peerName });
         },
         ask: (files, signal) => ask(peerId, files, signal),
       });

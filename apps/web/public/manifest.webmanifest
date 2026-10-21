@@ -1,0 +1,11 @@
+{
+  "name": "Radius",
+  "short_name": "Radius",
+  "description": "설치·가입 없이 가까운 기기끼리 파일을 직접 주고받아요.",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f8fd",
+  "theme_color": "#0b63ce",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
