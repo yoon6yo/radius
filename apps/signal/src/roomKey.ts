@@ -1,4 +1,5 @@
-import { isIPv6 } from "node:net";
+/** Runtime-agnostic (no node:net) so Workers can share it; callers pass textual addresses only. */
+const isIPv6 = (ip: string): boolean => ip.includes(":");
 
 function expandIPv6(ip: string): string[] | null {
   const [head = "", tail, extra] = ip.split("::");

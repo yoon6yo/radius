@@ -1,0 +1,35 @@
+name: deploy-signal
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - apps/signal-worker/**
+      - apps/signal/src/roomKey.ts
+      - packages/protocol/**
+      - pnpm-lock.yaml
+      - .github/workflows/deploy-signal.yml
+
+concurrency:
+  group: deploy-signal
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @radius/signal-worker typecheck
+      - run: pnpm --filter @radius/signal-worker test
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/signal-worker
+          command: deploy

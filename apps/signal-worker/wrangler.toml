@@ -1,0 +1,16 @@
+name = "radius-signal"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# One Durable Object holds every room: duration is billed per object (128 MB flat), so a single object caps usage at 24h/day.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "SignalHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalHub"]
+
+[vars]
+# Comma-separated browser origins allowed to connect, e.g. "https://radius.yoonie.workers.dev".
+ALLOWED_ORIGINS = "https://radius.yoonie.workers.dev"
