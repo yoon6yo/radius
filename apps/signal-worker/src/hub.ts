@@ -18,7 +18,10 @@ export interface Sock {
 
 export interface HubOptions {
   maxRoomSize?: number;
+  /** Concurrent connections per network (public IPv4, or IPv6 /64). */
   maxConnsPerIp?: number;
+  /** Hard cap across all rooms: the single Durable Object has 128 MB. */
+  maxTotalConns?: number;
   authTimeoutMs?: number;
 }
 
@@ -63,28 +66,34 @@ function hex(bytes: ArrayBuffer): string {
 /** All rooms live in one instance: a single Durable Object bills 128 MB for its lifetime regardless of room count. */
 export class SignalHub {
   private readonly rooms = new Map<string, Map<string, Conn>>();
-  private readonly connsPerIp = new Map<string, number>();
+  private readonly connsPerNet = new Map<string, number>();
+  private total = 0;
   private readonly maxRoomSize: number;
   private readonly maxConnsPerIp: number;
+  private readonly maxTotalConns: number;
   private readonly authTimeoutMs: number;
 
   constructor(opts: HubOptions = {}) {
     this.maxRoomSize = opts.maxRoomSize ?? 50;
     this.maxConnsPerIp = opts.maxConnsPerIp ?? 50;
+    this.maxTotalConns = opts.maxTotalConns ?? 5_000;
     this.authTimeoutMs = opts.authTimeoutMs ?? 5_000;
   }
 
   open(sock: Sock, ip: string): ConnHandle {
-    const open = this.connsPerIp.get(ip) ?? 0;
-    if (open >= this.maxConnsPerIp) {
+    // Keyed like rooms (IPv6 collapses to /64) so rotating addresses inside one prefix cannot dodge the cap.
+    const net = roomKeyFor(ip);
+    const open = this.connsPerNet.get(net) ?? 0;
+    if (open >= this.maxConnsPerIp || this.total >= this.maxTotalConns) {
       sock.close(CLOSE_POLICY, "too many connections");
       return { message() {}, close() {} };
     }
-    this.connsPerIp.set(ip, open + 1);
+    this.connsPerNet.set(net, open + 1);
+    this.total++;
 
     const conn: Conn = {
       sock,
-      roomKey: roomKeyFor(ip),
+      roomKey: net,
       closed: false,
       window: { start: Date.now(), count: 0 },
       queue: Promise.resolve(),
@@ -101,9 +110,10 @@ export class SignalHub {
         if (conn.closed) return;
         conn.closed = true;
         clearTimeout(authTimer);
-        const left = (this.connsPerIp.get(ip) ?? 1) - 1;
-        if (left <= 0) this.connsPerIp.delete(ip);
-        else this.connsPerIp.set(ip, left);
+        this.total--;
+        const left = (this.connsPerNet.get(net) ?? 1) - 1;
+        if (left <= 0) this.connsPerNet.delete(net);
+        else this.connsPerNet.set(net, left);
         const id = conn.peer?.id;
         if (!id) return;
         const room = this.rooms.get(conn.roomKey);
@@ -145,9 +155,11 @@ export class SignalHub {
     message.set(pending.nonce, context.length);
     // WebCrypto ECDSA signatures are raw r||s (IEEE P1363), matching the 64-byte wire format.
     const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pending.key, sig, message);
-    if (!ok || conn.closed) return conn.closed ? undefined : this.fail(conn, "auth_failed");
-
     const id = hex(await crypto.subtle.digest("SHA-256", pending.spki));
+    // The socket may have closed while awaiting; registering it now would leave a ghost peer no close event will clear.
+    if (conn.closed) return;
+    if (!ok) return this.fail(conn, "auth_failed");
+
     let room = this.rooms.get(conn.roomKey);
     if (!room) this.rooms.set(conn.roomKey, (room = new Map()));
     const previous = room.get(id);

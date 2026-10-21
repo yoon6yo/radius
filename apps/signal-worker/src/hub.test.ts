@@ -137,4 +137,41 @@ describe("SignalHub", () => {
     await tick();
     expect(t.inbox.some((m) => m.t === "error" && m.code === "bad_message")).toBe(true);
   });
+
+  it("does not register a socket that closes mid-authentication", async () => {
+    const hub = new SignalHub();
+    const s = new FakeSock();
+    s.keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign"])) as CryptoKeyPair;
+    s.handle = hub.open(s, "1.2.3.4");
+    s.tx({ t: "hello", pub: toBase64Url(new Uint8Array((await crypto.subtle.exportKey("spki", s.keys.publicKey)) as ArrayBuffer)), name: "ghost" });
+    await tick();
+    const ch = s.inbox.find((m) => m.t === "challenge");
+    if (ch?.t !== "challenge") throw new Error("no challenge");
+    const ctx = new TextEncoder().encode(AUTH_CONTEXT);
+    const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
+    const msg = new Uint8Array(ctx.length + nonce.length);
+    msg.set(ctx);
+    msg.set(nonce, ctx.length);
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, s.keys.privateKey, msg));
+    s.tx({ t: "auth", sig: toBase64Url(sig) });
+    s.handle.close();
+    await tick();
+    const late = await join(hub, "1.2.3.4", "late");
+    const ready = late.inbox.find((m) => m.t === "ready");
+    expect(ready?.t === "ready" && ready.peers).toEqual([]);
+  });
+
+  it("caps connections per IPv6 /64 and across the whole hub", async () => {
+    const hub = new SignalHub({ maxConnsPerIp: 2, maxTotalConns: 3 });
+    const open = (ip: string): FakeSock => {
+      const s = new FakeSock();
+      s.handle = hub.open(s, ip);
+      return s;
+    };
+    open("2001:db8:0:1::1");
+    open("2001:db8:0:1::2");
+    expect(open("2001:db8:0:1::3").closed?.reason).toBe("too many connections");
+    open("9.9.9.9");
+    expect(open("8.8.8.8").closed?.reason).toBe("too many connections");
+  });
 });
