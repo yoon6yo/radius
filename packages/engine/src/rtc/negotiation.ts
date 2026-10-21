@@ -38,3 +38,8 @@ export function parseRtcSignal(raw: unknown): RtcSignal | null {
   }
   return null;
 }
+
+/** DTLS fingerprint of an SDP; it changes whenever the remote side restarts from scratch (e.g. page reload). */
+export function sdpFingerprint(sdp: string): string | null {
+  return /^a=fingerprint:(\S+ \S+)/m.exec(sdp)?.[1]?.toLowerCase() ?? null;
+}

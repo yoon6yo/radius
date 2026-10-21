@@ -12,6 +12,10 @@ export const MAX_HAVE_CHARS = 32 * 1024;
 
 const FRAME_TYPE_DATA = 1;
 
+/** Frame flags. ZSTD: payload is part of a zstd-compressed block. LAST: final frame of a compressed block. */
+export const FLAG_ZSTD = 1;
+export const FLAG_LAST = 2;
+
 export interface FileMeta {
   /** Relative, `/`-separated, validated by {@link isSafePath}. */
   path: string;
@@ -20,7 +24,8 @@ export interface FileMeta {
 
 export type TransferMsg =
   | { t: "offer"; id: number; files: FileMeta[] }
-  | { t: "accept"; id: number; have?: string[] }
+  /** `z`: receiver can decompress zstd blocks. */
+  | { t: "accept"; id: number; have?: string[]; z?: true }
   | { t: "reject"; id: number; reason: RejectReason }
   | { t: "bh"; id: number; f: number; b: number; h: string }
   | { t: "ack"; id: number; f: number; b: number }
@@ -105,14 +110,16 @@ export function parseTransferMsg(raw: unknown): TransferMsg | null {
       return { t: "offer", id, files };
     }
     case "accept": {
-      if (raw.have === undefined) return { t: "accept", id };
+      if (raw.z !== undefined && raw.z !== true) return null;
+      const z = raw.z === true ? ({ z: true } as const) : {};
+      if (raw.have === undefined) return { t: "accept", id, ...z };
       if (!Array.isArray(raw.have) || raw.have.length > MAX_OFFER_FILES) return null;
       let chars = 0;
       for (const h of raw.have as unknown[]) {
         if (typeof h !== "string" || (h !== "" && fromBase64Url(h) === null)) return null;
         chars += h.length;
       }
-      return chars <= MAX_HAVE_CHARS ? { t: "accept", id, have: raw.have as string[] } : null;
+      return chars <= MAX_HAVE_CHARS ? { t: "accept", id, have: raw.have as string[], ...z } : null;
     }
     case "reject":
       return raw.reason === "declined" || raw.reason === "no_space" || raw.reason === "busy"

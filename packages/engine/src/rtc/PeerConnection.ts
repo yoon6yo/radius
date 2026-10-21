@@ -1,5 +1,5 @@
 import { diagnoseFailure, parseCandidate, type CandidateInfo, type FailureReason } from "./diagnose";
-import { isPolite, parseRtcSignal } from "./negotiation";
+import { isPolite, parseRtcSignal, sdpFingerprint } from "./negotiation";
 import type { PeerConnectionOptions, PeerState, RtcSignal } from "./types";
 
 const DEFAULT_STUN = "stun:stun.l.google.com:19302";
@@ -50,6 +50,12 @@ export class PeerConnection {
       this.sendRtc({ t: "ice", candidate: e.candidate?.toJSON() ?? null });
     };
     this.pc.oniceconnectionstatechange = () => this.onIceState();
+  }
+
+  /** DTLS fingerprint of the current remote description, if any. */
+  get remoteFingerprint(): string | null {
+    const sdp = this.pc.remoteDescription?.sdp;
+    return sdp ? sdpFingerprint(sdp) : null;
   }
 
   get state(): PeerState {

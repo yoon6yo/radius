@@ -39,6 +39,12 @@ export interface Sink {
   abort(): Promise<void>;
 }
 
+/** Block compression. `decompress` must return exactly `expectedLength` bytes or throw. */
+export interface Codec {
+  compress(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>>;
+  decompress(data: Uint8Array, expectedLength: number): Promise<Uint8Array>;
+}
+
 export type Sha256 = (data: Uint8Array) => Promise<Uint8Array>;
 
 export type TransferResult =

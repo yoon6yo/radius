@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FAILURE_HINTS, PeerConnection, parseRtcSignal, type PeerState } from "@radius/engine";
+import { FAILURE_HINTS, PeerConnection, parseRtcSignal, sdpFingerprint, type PeerState } from "@radius/engine";
 import type { IncomingOffer } from "@/components/AcceptDialog";
 import { sweepTransfers } from "./exportOpfs";
 import { PeerTransfer, type TransferView } from "./peerTransfer";
@@ -96,6 +96,10 @@ export function usePeers(signal: SignalState) {
       const sig = parseRtcSignal(data);
       const known = conns.current.get(from);
       if (!sig || (!known && !(sig.t === "sdp" && sig.description.type === "offer"))) return;
+      // A peer that restarted (page reload) offers with a new DTLS identity: the old association is dead
+      // and a renegotiation cannot adopt it, so start a fresh connection instead.
+      const fp = sig.t === "sdp" && sig.description.type === "offer" ? sdpFingerprint(sig.description.sdp) : null;
+      if (known && fp && known.remoteFingerprint && known.remoteFingerprint !== fp) known.close();
       void open(from)?.handleSignal(data);
     });
     return () => setSignalHandler(null);

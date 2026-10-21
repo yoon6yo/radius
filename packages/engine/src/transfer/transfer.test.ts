@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BLOCK_SIZE, MAX_PAYLOAD_BYTES, encodeFrame, type TransferMsg } from "@radius/protocol";
+import { BLOCK_SIZE, FLAG_ZSTD, MAX_PAYLOAD_BYTES, decodeFrame, encodeFrame, type TransferMsg } from "@radius/protocol";
 import { bytesEqual } from "./hash";
 import { MAX_INFLIGHT_BLOCKS, Receiver } from "./receiver";
 import { Sender, type SendFile } from "./sender";
-import { StagingBusyError, type DataLink, type FileSource, type Sink } from "./types";
+import { StagingBusyError, type Codec, type DataLink, type FileSource, type Sink } from "./types";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -53,6 +53,18 @@ class MemSink implements Sink {
   }
 }
 
+async function pipe(data: Uint8Array, s: CompressionStream | DecompressionStream): Promise<Uint8Array<ArrayBuffer>> {
+  const w = s.writable.getWriter();
+  void w.write(data as Uint8Array<ArrayBuffer>).then(() => w.close());
+  return new Uint8Array(await new Response(s.readable).arrayBuffer());
+}
+
+/** Stand-in for zstd: native deflate-raw. */
+const deflateCodec: Codec = {
+  compress: (d) => pipe(d, new CompressionStream("deflate-raw")),
+  decompress: (d) => pipe(d, new DecompressionStream("deflate-raw")),
+};
+
 function pattern(size: number, seed: number): Uint8Array {
   const a = new Uint8Array(size);
   for (let i = 0; i < size; i++) a[i] = (i * 31 + seed) & 0xff;
@@ -75,6 +87,8 @@ function harness(
     decision?: "accept" | "declined" | "no_space";
     highWatermark?: number;
     sink?: MemSink;
+    senderCodec?: Codec;
+    receiverCodec?: Codec;
   } = {},
 ): Harness {
   const channels = opts.channels ?? 3;
@@ -116,12 +130,14 @@ function harness(
       return true;
     },
     sink,
+    ...(opts.receiverCodec ? { codec: opts.receiverCodec } : {}),
     onOffer: () => Promise.resolve(opts.decision ?? "accept"),
   });
   ref.sender = new Sender({
     id: 7,
     files,
     link,
+    ...(opts.senderCodec ? { codec: opts.senderCodec } : {}),
     ...(opts.highWatermark ? { highWatermark: opts.highWatermark } : {}),
   });
   return Object.assign(h, { sender: ref.sender, receiver: ref.receiver, sink }) as Harness;
@@ -140,6 +156,57 @@ describe("transfer", () => {
       expect(f.path).toBe(`dir/f${i}.bin`);
       expect(f.closed).toBe(true);
       expect(bytesEqual(f.data, d)).toBe(true);
+    });
+  });
+
+  describe("compression", () => {
+    const run = async (opts: { senderCodec?: Codec; receiverCodec?: Codec; corrupt?: (f: ArrayBuffer, n: number) => ArrayBuffer }, datas: Uint8Array[]) => {
+      let compressedFrames = 0;
+      const h = harness(
+        datas.map((d, i) => ({ path: `f${i}`, source: new MemSource(d) })),
+        {
+          ...opts,
+          corrupt: (frame, n) => {
+            if (decodeFrame(frame)!.header.flags & FLAG_ZSTD) compressedFrames++;
+            return opts.corrupt ? opts.corrupt(frame, n) : frame;
+          },
+        },
+      );
+      h.sender.start();
+      return { h, compressedFrames: () => compressedFrames };
+    };
+    const noise = (n: number) => {
+      let s = 123456789;
+      return Uint8Array.from({ length: n }, () => ((s ^= s << 13), (s ^= s >>> 17), (s ^= s << 5), s & 0xff));
+    };
+
+    it("sends compressible blocks compressed and verifies the original bytes", async () => {
+      const datas = [new Uint8Array(BLOCK_SIZE * 2 + 3).fill(65), new Uint8Array(1000).fill(1)];
+      const { h, compressedFrames } = await run({ senderCodec: deflateCodec, receiverCodec: deflateCodec }, datas);
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(await h.receiver.result).toEqual({ status: "complete" });
+      expect(compressedFrames()).toBeGreaterThan(0);
+      datas.forEach((d, i) => expect(bytesEqual(h.sink.files.get(i)!.data, d)).toBe(true));
+    });
+
+    it("sends incompressible blocks raw", async () => {
+      const d = noise(BLOCK_SIZE + 10);
+      const { h, compressedFrames } = await run({ senderCodec: deflateCodec, receiverCodec: deflateCodec }, [d]);
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(compressedFrames()).toBe(0);
+      expect(bytesEqual(h.sink.files.get(0)!.data, d)).toBe(true);
+    });
+
+    it("does not compress when the receiver has no codec", async () => {
+      const { h, compressedFrames } = await run({ senderCodec: deflateCodec }, [new Uint8Array(BLOCK_SIZE).fill(9)]);
+      expect(await h.sender.result).toEqual({ status: "complete" });
+      expect(compressedFrames()).toBe(0);
+    });
+
+    it("nacks a block that fails to decompress and gives up after retries", async () => {
+      const bad: Codec = { ...deflateCodec, decompress: () => Promise.resolve(new Uint8Array(3)) };
+      const { h } = await run({ senderCodec: deflateCodec, receiverCodec: bad }, [new Uint8Array(BLOCK_SIZE).fill(9)]);
+      expect(await h.sender.result).toEqual({ status: "failed", reason: "block_retries_exceeded" });
     });
   });
 
