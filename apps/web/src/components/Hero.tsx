@@ -21,7 +21,7 @@ function Rings() {
             strokeWidth="1"
             vectorEffect="non-scaling-stroke"
             className="ripple"
-            style={{ animationDelay: `${delay}s`, ["--rs" as string]: 1 + i * 0.7, ["--ro" as string]: 0.3 - i * 0.08 }}
+            style={{ animationDelay: `${-delay}s`, ["--rs" as string]: 1 + i * 0.7, ["--ro" as string]: 0.3 - i * 0.08 }}
           />
         ))}
       </svg>
