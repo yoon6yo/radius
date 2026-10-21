@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SIGNAL_BYTES } from "@radius/protocol";
-import { isPolite, parseRtcSignal } from "./negotiation";
+import { isPolite, parseRtcSignal, sdpFingerprint } from "./negotiation";
 
 describe("isPolite", () => {
   it("is asymmetric", () => {
@@ -45,5 +45,12 @@ describe("parseRtcSignal", () => {
     expect(parseRtcSignal(null)).toBeNull();
     expect(parseRtcSignal("sdp")).toBeNull();
     expect(parseRtcSignal({ t: "other" })).toBeNull();
+  });
+});
+
+describe("sdpFingerprint", () => {
+  it("extracts a normalized fingerprint or null", () => {
+    expect(sdpFingerprint("v=0\r\na=fingerprint:sha-256 AB:CD\r\na=setup:actpass")).toBe("sha-256 ab:cd");
+    expect(sdpFingerprint("v=0\r\n")).toBeNull();
   });
 });

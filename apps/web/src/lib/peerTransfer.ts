@@ -8,6 +8,7 @@ import {
 import { MAX_OFFER_FILES, parseTransferMsg, type FileMeta } from "@radius/protocol";
 import { exportTransfer, freeBytes, safeName } from "./exportOpfs";
 import { OpfsSink, completeStaging } from "./opfsSink";
+import { zstdCodec } from "./zstdCodec";
 
 export interface TransferView {
   direction: "send" | "receive";
@@ -80,6 +81,7 @@ export class PeerTransfer {
     const sender = new Sender({
       id: crypto.getRandomValues(new Uint32Array(1))[0]!,
       link: this.link(),
+      codec: zstdCodec,
       files: files.map((f) => ({
         path: f.webkitRelativePath || f.name,
         source: { size: f.size, read: (o, l) => f.slice(o, o + l).arrayBuffer() },
@@ -104,6 +106,7 @@ export class PeerTransfer {
       this.opts.onView({ direction: "receive", name, done, total, status });
     const receiver = new Receiver({
       sink,
+      codec: zstdCodec,
       send: (m) => this.conn?.sendControl(JSON.stringify(m)) ?? false,
       onOffer: async (files, resumedBytes) => {
         total = files.reduce((n, f) => n + f.size, 0);

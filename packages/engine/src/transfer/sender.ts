@@ -1,5 +1,7 @@
 import {
   BLOCK_SIZE,
+  FLAG_LAST,
+  FLAG_ZSTD,
   MAX_PAYLOAD_BYTES,
   blockCount,
   decodeHave,
@@ -8,7 +10,7 @@ import {
   type TransferMsg,
 } from "@radius/protocol";
 import { rootHash, webCryptoSha256 } from "./hash";
-import type { DataLink, FileSource, Sha256, TransferResult } from "./types";
+import type { Codec, DataLink, FileSource, Sha256, TransferResult } from "./types";
 
 export interface SendFile {
   path: string;
@@ -20,6 +22,8 @@ export interface SenderOptions {
   files: SendFile[];
   link: DataLink;
   sha256?: Sha256;
+  /** Compresses blocks when the receiver announces support and it pays off. */
+  codec?: Codec;
   onProgress?(ackedBytes: number, totalBytes: number): void;
   /** Blocks read/hashed/sent concurrently. Default 4. */
   window?: number;
@@ -34,6 +38,9 @@ interface Block {
   offset: number;
   length: number;
 }
+
+/** A block is sent compressed only if it shrinks to at most this fraction. */
+const MIN_COMPRESSION_GAIN = 0.8;
 
 export class Sender {
   readonly result: Promise<TransferResult>;
@@ -51,6 +58,7 @@ export class Sender {
   private sending = 0;
   private totalBytes = 0;
   private finished = false;
+  private peerZstd = false;
   private started = false;
 
   constructor(opts: SenderOptions) {
@@ -92,6 +100,7 @@ export class Sender {
     switch (msg.t) {
       case "accept":
         if (this.pending.length === 0 && this.acked.size === 0) {
+          this.peerZstd = msg.z === true;
           this.markHave(msg.have);
           this.blocks.forEach((_, i) => this.pending.push(i));
           this.pump();
@@ -179,10 +188,21 @@ export class Sender {
     const id = this.opts.id;
     this.opts.link.sendControl({ t: "bh", id, f: blk.file, b: blk.index, h: toBase64Url(h) });
     if (this.hashOnly.has(i)) return;
-    for (let pos = 0; pos < blk.length; pos += MAX_PAYLOAD_BYTES) {
+    let payload: Uint8Array<ArrayBuffer> = bytes;
+    let flags = 0;
+    if (this.opts.codec && this.peerZstd) {
+      const packed = await this.opts.codec.compress(bytes);
+      if (packed.length <= blk.length * MIN_COMPRESSION_GAIN) {
+        payload = packed;
+        flags = FLAG_ZSTD;
+      }
+    }
+    for (let pos = 0; pos < payload.length; pos += MAX_PAYLOAD_BYTES) {
+      const end = Math.min(pos + MAX_PAYLOAD_BYTES, payload.length);
+      const last = flags !== 0 && end === payload.length;
       const frame = encodeFrame(
-        { flags: 0, fileIdx: blk.file, transferId: id, blockIdx: blk.index, offset: pos },
-        bytes.subarray(pos, Math.min(pos + MAX_PAYLOAD_BYTES, blk.length)),
+        { flags: last ? flags | FLAG_LAST : flags, fileIdx: blk.file, transferId: id, blockIdx: blk.index, offset: pos },
+        payload.subarray(pos, end),
       );
       for (;;) {
         const ch = await this.acquireChannel();

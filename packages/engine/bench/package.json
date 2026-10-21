@@ -1,0 +1,13 @@
+{
+  "name": "radius-m7-bench",
+  "private": true,
+  "type": "module",
+  "description": "Standalone M7 spike; not part of the pnpm workspace. Run: npm i && node run.mjs",
+  "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
+    "hash-wasm": "^4.12.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -2,6 +2,8 @@ import {
   BLOCK_SIZE,
   blockCount,
   decodeFrame,
+  FLAG_LAST,
+  FLAG_ZSTD,
   encodeHave,
   SHA256_BYTES,
   type FrameHeader,
@@ -11,12 +13,14 @@ import {
   type TransferMsg,
 } from "@radius/protocol";
 import { bytesEqual, rootHash, webCryptoSha256 } from "./hash";
-import { StagingBusyError, type Sha256, type Sink, type TransferResult } from "./types";
+import { StagingBusyError, type Codec, type Sha256, type Sink, type TransferResult } from "./types";
 
 export interface ReceiverOptions {
   send(msg: TransferMsg): boolean;
   sink: Sink;
   sha256?: Sha256;
+  /** Enables receiving zstd-compressed blocks. */
+  codec?: Codec;
   /** Accept/decline decision (user prompt, free-space check). */
   onOffer(files: FileMeta[], resumedBytes: number): Promise<"accept" | RejectReason>;
   onProgress?(verifiedBytes: number, totalBytes: number): void;
@@ -29,6 +33,9 @@ interface Pending {
   buf: Uint8Array;
   seen: Set<number>;
   got: number;
+  /** Compressed block: known once the LAST frame arrives. */
+  zstd: boolean;
+  total?: number;
 }
 
 export class Receiver {
@@ -156,7 +163,8 @@ export class Receiver {
     this.active = true;
     if (resumed > 0) this.opts.onProgress?.(resumed, this.totalBytes);
     const have = resumed > 0 ? verified.map((blocks) => encodeHave(blocks.map((h) => h !== undefined))) : undefined;
-    this.opts.send(have ? { t: "accept", id, have } : { t: "accept", id });
+    const z = this.opts.codec ? ({ z: true } as const) : {};
+    this.opts.send(have ? { t: "accept", id, have, ...z } : { t: "accept", id, ...z });
   }
 
   private blockLen(file: FileMeta, b: number): number {
@@ -200,22 +208,35 @@ export class Receiver {
     if (!file || h.blockIdx >= blockCount(file.size)) return;
     const blockLen = Math.min(BLOCK_SIZE, file.size - h.blockIdx * BLOCK_SIZE);
     if (h.offset + payload.length > blockLen) return;
+    const zstd = (h.flags & FLAG_ZSTD) !== 0;
+    if (zstd && !this.opts.codec) throw new Error("unsupported_codec");
     if (this.verified[h.fileIdx]![h.blockIdx]) return;
     const k = this.key(h.fileIdx, h.blockIdx);
     let p = this.partial.get(k);
     if (!p) {
       if (this.partial.size + this.waiting.size >= MAX_INFLIGHT_BLOCKS) throw new Error("too_many_blocks");
-      p = { buf: new Uint8Array(blockLen), seen: new Set(), got: 0 };
+      p = { buf: new Uint8Array(blockLen), seen: new Set(), got: 0, zstd };
       this.partial.set(k, p);
     }
-    if (p.seen.has(h.offset)) return;
+    if (p.zstd !== zstd || p.seen.has(h.offset)) return;
     p.seen.add(h.offset);
     p.buf.set(payload, h.offset);
     p.got += payload.length;
-    if (p.got < blockLen) return;
+    if (zstd && (h.flags & FLAG_LAST) !== 0) p.total = h.offset + payload.length;
+    if (zstd ? p.total === undefined || p.got < p.total : p.got < blockLen) return;
     this.partial.delete(k);
-    if (this.expected.has(k)) await this.verifyBlock(h.fileIdx, h.blockIdx, p.buf);
-    else this.waiting.set(k, p.buf);
+    let data = p.buf;
+    if (zstd) {
+      try {
+        data = await this.opts.codec!.decompress(p.buf.subarray(0, p.total), blockLen);
+        if (data.length !== blockLen) throw new Error("bad_length");
+      } catch {
+        this.opts.send({ t: "nack", id: this.id, f: h.fileIdx, b: h.blockIdx });
+        return;
+      }
+    }
+    if (this.expected.has(k)) await this.verifyBlock(h.fileIdx, h.blockIdx, data);
+    else this.waiting.set(k, data);
   }
 
   private async verifyBlock(f: number, b: number, data: Uint8Array): Promise<void> {
