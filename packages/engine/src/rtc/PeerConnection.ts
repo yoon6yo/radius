@@ -4,7 +4,7 @@ import type { PeerConnectionOptions, PeerState, RtcSignal } from "./types";
 
 const DEFAULT_STUN = "stun:stun.l.google.com:19302";
 const CONTROL_ID = 0;
-const DATA_LOW_WATERMARK = 256 * 1024;
+const DATA_LOW_WATERMARK = 64 * 1024;
 
 function defaultRestartBackoff(attempt: number): number {
   return Math.min(10_000, 1000 * 2 ** attempt);
