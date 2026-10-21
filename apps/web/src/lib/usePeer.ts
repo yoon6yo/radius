@@ -66,6 +66,7 @@ export function usePeers(signal: SignalState) {
         sendSignal: (data) => sendSignal(peerId, data),
         onState: (state) => {
           if (state === "failed" || state === "closed") xfer.interrupt();
+          if (state === "connected") xfer.warmUp();
           const failure = state === "failed" ? FAILURE_HINTS[conn.failureReason] : null;
           patch(peerId, (l) => ({ ...l, state, failure }));
         },

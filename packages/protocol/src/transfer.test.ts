@@ -8,6 +8,8 @@ import {
   blockCount,
   MAX_HAVE_CHARS,
   decodeFrame,
+  MAX_MESSAGE_BYTES,
+  encodeWarmupFrame,
   decodeHave,
   encodeHave,
   encodeFrame,
@@ -24,6 +26,11 @@ describe("frame codec", () => {
     const f = decodeFrame(encodeFrame(h, new Uint8Array([1, 2, 3])));
     expect(f?.header).toEqual(h);
     expect([...(f?.payload ?? [])]).toEqual([1, 2, 3]);
+  });
+  it("warm-up frames are max-size and not decodable as data", () => {
+    const w = encodeWarmupFrame();
+    expect(w.byteLength).toBe(MAX_MESSAGE_BYTES);
+    expect(decodeFrame(w)).toBeNull();
   });
   it("accepts max payload, rejects larger", () => {
     const h = { flags: 0, fileIdx: 0, transferId: 1, blockIdx: 0, offset: 0 };

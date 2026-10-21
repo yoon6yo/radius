@@ -10,10 +10,14 @@ import {
   type TransferMsg,
 } from "@radius/protocol";
 import { rootHash, webCryptoSha256 } from "./hash";
+import { RampPacer, type RampOptions } from "./pacer";
 import type { Codec, DataLink, FileSource, Sha256, TransferResult } from "./types";
 
 /** A larger per-channel burst makes Chromium drop packets at startup and stall in SCTP retransmit backoff for seconds. */
 const DEFAULT_HIGH_WATERMARK = 256 * 1024;
+
+/** Start-up pacing, see RampPacer. Tuned on loopback Chromium: 10 runs of 100 MB, mean 29 -> 43 MB/s. */
+const DEFAULT_RAMP: RampOptions = { initialBps: 2 * 1024 * 1024, doubleMs: 100, rampMs: 800 };
 
 export interface SendFile {
   path: string;
@@ -32,6 +36,8 @@ export interface SenderOptions {
   window?: number;
   /** Per-channel buffered bytes above which sending waits. Default 1 MiB. */
   highWatermark?: number;
+  /** Start-up rate ramp; `false` disables it. */
+  ramp?: RampOptions | false;
   maxRetries?: number;
 }
 
@@ -50,6 +56,7 @@ export class Sender {
   private resolve!: (r: TransferResult) => void;
   private readonly opts: SenderOptions;
   private readonly sha: Sha256;
+  private readonly pacer: RampPacer | undefined;
   private readonly blocks: Block[] = [];
   private readonly hashes: Uint8Array[] = [];
   private readonly pending: number[] = [];
@@ -67,6 +74,8 @@ export class Sender {
   constructor(opts: SenderOptions) {
     this.opts = opts;
     this.sha = opts.sha256 ?? webCryptoSha256;
+    const ramp = opts.ramp ?? DEFAULT_RAMP;
+    this.pacer = ramp === false ? undefined : new RampPacer(ramp);
     this.result = new Promise((r) => (this.resolve = r));
     opts.files.forEach((f, file) => {
       const n = blockCount(f.source.size);
@@ -207,6 +216,7 @@ export class Sender {
         { flags: last ? flags | FLAG_LAST : flags, fileIdx: blk.file, transferId: id, blockIdx: blk.index, offset: pos },
         payload.subarray(pos, end),
       );
+      await this.pacer?.take(frame.byteLength);
       for (;;) {
         const ch = await this.acquireChannel();
         if (ch < 0) return;
