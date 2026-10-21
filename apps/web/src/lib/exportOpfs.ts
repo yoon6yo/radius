@@ -1,10 +1,15 @@
 const ROOT = "transfers";
 
-/** Peer-supplied names are shown and saved verbatim otherwise; drop control and bidi override chars. */
-// eslint-disable-next-line no-control-regex
-const UNSAFE_NAME_CHARS = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
-export function safeName(name: string): string {
+/** Peer-supplied names: drop control, format (bidi/zero-width) and line/paragraph separator chars. */
+const UNSAFE_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+const MAX_NAME_CHARS = 128;
+export function stripUnsafe(name: string): string {
   return name.replace(UNSAFE_NAME_CHARS, "");
+}
+/** For display only; downloads keep the full name so the extension survives. */
+export function safeName(name: string): string {
+  const clean = stripUnsafe(name);
+  return clean.length > MAX_NAME_CHARS ? `${clean.slice(0, MAX_NAME_CHARS - 1)}…` : clean;
 }
 
 async function dirHandle(dir: string): Promise<FileSystemDirectoryHandle> {
@@ -24,7 +29,7 @@ export async function exportTransfer(dir: string, paths: string[]): Promise<void
     const url = URL.createObjectURL(file);
     const a = document.createElement("a");
     a.href = url;
-    a.download = safeName(parts[parts.length - 1]!);
+    a.download = stripUnsafe(parts[parts.length - 1]!);
     document.body.appendChild(a);
     a.click();
     a.remove();
