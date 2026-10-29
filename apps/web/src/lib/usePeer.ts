@@ -3,7 +3,7 @@ import { FAILURE_HINTS, PeerConnection, parseRtcSignal, sdpFingerprint, type Pee
 import type { IncomingOffer } from "@/components/AcceptDialog";
 import { nameSkeleton } from "@radius/protocol";
 import { sweepTransfers } from "./exportOpfs";
-import { PeerTransfer, type TransferFile, type TransferView } from "./peerTransfer";
+import { PeerTransfer, type TransferView } from "./peerTransfer";
 import type { SignalState } from "./useSignal";
 
 export interface PeerLink {
@@ -15,18 +15,6 @@ export interface PeerLink {
   failure: string | null;
 }
 
-/** A finished transfer, kept in memory until the page closes. */
-export interface HistoryEntry {
-  key: string;
-  peerName: string;
-  direction: "send" | "receive";
-  files: TransferFile[];
-  total: number;
-  at: number;
-  /** Receive only: saves the files again if the browser blocked the automatic download. */
-  save?: () => Promise<void>;
-}
-
 /** Dev-only: one PeerConnection per remote peer with a ping/pong echo over every channel. */
 export function usePeers(signal: SignalState) {
   const { self, status, sendSignal, setSignalHandler } = signal;
@@ -34,8 +22,6 @@ export function usePeers(signal: SignalState) {
   const xfers = useRef(new Map<string, PeerTransfer>());
   const [links, setLinks] = useState<Record<string, PeerLink>>({});
   const [offer, setOffer] = useState<IncomingOffer | null>(null);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const recorded = useRef(new Set<string>());
   const answer = useRef<((accept: boolean) => void) | null>(null);
   const peersRef = useRef(signal.peers);
   useEffect(() => {
@@ -84,20 +70,6 @@ export function usePeers(signal: SignalState) {
         peerId,
         onView: (transfer) => {
           patch(peerId, (l) => ({ ...l, transfer }));
-          const key = `${peerId}:${transfer.direction}:${transfer.id}`;
-          if (transfer.status !== "complete" || recorded.current.has(key)) return;
-          recorded.current.add(key);
-          const peerName = peersRef.current.find((p) => p.id === peerId)?.name ?? "알 수 없는 기기";
-          const entry: HistoryEntry = {
-            key,
-            peerName,
-            direction: transfer.direction,
-            files: transfer.files,
-            total: transfer.total,
-            at: Date.now(),
-            ...(transfer.save ? { save: transfer.save } : {}),
-          };
-          setHistory((h) => [entry, ...h]);
         },
         ask: (files, signal) => ask(peerId, files, signal),
       });
@@ -186,5 +158,5 @@ export function usePeers(signal: SignalState) {
 
   const sendFiles = useCallback((peerId: string, files: File[]) => xfers.current.get(peerId)?.send(files), []);
 
-  return { links, connect: open, ping, sendFiles, offer, respond, history };
+  return { links, connect: open, ping, sendFiles, offer, respond };
 }

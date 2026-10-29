@@ -12,7 +12,7 @@ function stored(): Theme | null {
 }
 
 export function currentTheme(): Theme {
-  return stored() ?? "light";
+  return stored() ?? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 }
 
 export function applyTheme(): void {

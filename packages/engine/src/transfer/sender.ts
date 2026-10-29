@@ -242,7 +242,11 @@ export class Sender {
       }
       if (best < 0) await link.waitReady();
       else if (link.bufferedAmount(best) < high) return best;
-      else await link.waitDrain(best);
+      else {
+        await link.waitDrain(best);
+        // waitDrain resolves at once while the buffer is at or under the channel's low threshold; a watermark at that level would then spin on microtasks and starve the event loop that drains it.
+        if (link.bufferedAmount(best) >= high) await new Promise<void>((r) => setTimeout(r, 0));
+      }
     }
     return -1;
   }

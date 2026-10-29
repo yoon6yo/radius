@@ -23,6 +23,8 @@
     --color-chart-2: var(--chart-2);
     --color-chart-1: var(--chart-1);
     --color-ring: var(--ring);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
@@ -50,13 +52,13 @@
 }
 
 :root {
-    --background: oklch(0.982 0.008 250);
+    --background: oklch(1 0 0);
     --foreground: oklch(0.2 0.04 262);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.2 0.04 262);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.2 0.04 262);
-    --primary: oklch(0.54 0.2 256);
+    --primary: oklch(0.52 0.22 259);
     --primary-foreground: oklch(0.99 0.005 255);
     --secondary: oklch(0.94 0.02 255);
     --secondary-foreground: oklch(0.3 0.06 262);
@@ -68,6 +70,8 @@
     --border: oklch(0.915 0.015 255);
     --input: oklch(0.91 0.015 255);
     --ring: oklch(0.6 0.2 256);
+    --success: oklch(0.696 0.17 162.5);
+    --warning: oklch(0.828 0.165 84);
     --radius: 1.25rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -124,23 +128,19 @@
     @apply font-sans;
     }
 }
-@keyframes ripple {
-  from { transform: scale(0.5); opacity: 0.4; }
-  to { transform: scale(2.4); opacity: 0; }
+@keyframes wave-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-420px); }
 }
-.ripple { transform-box: fill-box; transform-origin: center; animation: ripple 3.6s cubic-bezier(0.22, 1, 0.36, 1) infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .connected-flash { animation: none; }
-  .ripple { animation: none; opacity: var(--ro, 0.2); transform: scale(var(--rs, 1.4)); }
-}
-
-@keyframes connected-flash {
-  from { outline: 2px solid color-mix(in oklch, var(--primary) 70%, transparent); }
-  to { outline: 2px solid transparent; }
-}
+.wave-slide { animation: wave-slide 7s linear infinite; }
+@keyframes wave-in { from { opacity: 0; } to { opacity: 1; } }
+.wave-in { animation: wave-in 0.9s ease-out 1 both; }
+@keyframes connected-flash { from { background-color: var(--accent); } to { background-color: transparent; } }
 .connected-flash { animation: connected-flash 1.6s ease-out 1; }
 @media (prefers-reduced-motion: reduce) {
-  .connected-flash { animation: none; }
+  .wave-slide, .wave-in, .connected-flash { animation: none; }
 }
 
-:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@layer base {
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+}
