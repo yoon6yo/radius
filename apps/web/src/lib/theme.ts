@@ -29,3 +29,15 @@ export function toggleTheme(): Theme {
   applyTheme();
   return next;
 }
+
+/** Re-applies the theme when the OS scheme flips and nothing is stored; returns the unsubscribe. */
+export function watchSystemTheme(onChange: (t: Theme) => void): () => void {
+  const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+  if (!mq) return () => {};
+  const h = () => {
+    applyTheme();
+    onChange(currentTheme());
+  };
+  mq.addEventListener("change", h);
+  return () => mq.removeEventListener("change", h);
+}
