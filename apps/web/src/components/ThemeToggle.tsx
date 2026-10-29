@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
-import { currentTheme, toggleTheme } from "@/lib/theme";
+import { currentTheme, toggleTheme, watchSystemTheme } from "@/lib/theme";
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState(currentTheme);
+  useEffect(() => watchSystemTheme(setTheme), []);
   return (
     <button
       type="button"

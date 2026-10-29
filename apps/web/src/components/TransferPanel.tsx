@@ -21,7 +21,7 @@ function FileList({ files, running }: { files: TransferView["files"]; running: b
   const finished = files.filter((f) => f.done >= f.size).length;
   const start = all || firstOpen < 0 || files.length <= COLLAPSED_ROWS ? 0 : firstOpen;
   const rows = files.slice(start, all ? undefined : start + COLLAPSED_ROWS);
-  const hidden = files.length - rows.length;
+  const hidden = files.length - start - rows.length;
   return (
     <div className="mt-3">
       <ul aria-label="파일 목록" className={all ? "max-h-72 overflow-auto" : ""}>
