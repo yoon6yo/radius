@@ -81,7 +81,7 @@ export function DeviceCard({ id, name, link, onConnect, onSend }: DeviceCardProp
       onDragLeave={() => setOver(false)}
       onDrop={drop}
       data-expanded={showTransfer || undefined}
-      className={`rounded-3xl p-2 ring-2 transition-[box-shadow,background-color] duration-300 ${showTransfer ? "col-span-2" : ""} ${
+      className={`rounded-3xl p-2 ring-2 transition-[box-shadow,background-color] duration-200 ease-out ${showTransfer ? "col-span-2" : ""} ${
         over && connected ? "bg-accent ring-primary/50" : "ring-transparent"
       } ${connected ? "connected-flash" : ""}`}
     >
