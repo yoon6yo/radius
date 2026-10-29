@@ -1,4 +1,5 @@
-import { Check, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import type { TransferView } from "@/lib/peerTransfer";
@@ -11,9 +12,51 @@ interface TransferPanelProps {
   onClose(): void;
 }
 
-function fileState(done: number, size: number, running: boolean): "done" | "running" | "queued" {
-  if (done >= size) return "done";
-  return running && done > 0 ? "running" : "queued";
+const COLLAPSED_ROWS = 4;
+
+/** Files with their own progress. Collapsed: finished ones drop out and only the next few show. */
+function FileList({ files, running }: { files: TransferView["files"]; running: boolean }) {
+  const [all, setAll] = useState(false);
+  const firstOpen = files.findIndex((f) => f.done < f.size);
+  const finished = files.filter((f) => f.done >= f.size).length;
+  const start = all || firstOpen < 0 || files.length <= COLLAPSED_ROWS ? 0 : firstOpen;
+  const rows = files.slice(start, all ? undefined : start + COLLAPSED_ROWS);
+  const hidden = files.length - rows.length;
+  return (
+    <div className="mt-3">
+      <ul aria-label="파일 목록" className={all ? "max-h-72 overflow-auto" : ""}>
+        {rows.map((f, k) => {
+          const i = start + k;
+          const done = f.done >= f.size;
+          const active = running && !done && (i === firstOpen || f.done > 0);
+          const pct = f.size > 0 ? Math.floor((f.done / f.size) * 100) : 100;
+          return (
+            <li key={i} className="py-1.5">
+              <div className="flex items-center gap-3">
+                <span className="grid size-4 shrink-0 place-items-center" aria-hidden>
+                  {done ? <Check className="size-4 text-primary" /> : <i className={`size-1.5 rounded-full ${active ? "bg-primary" : "bg-muted-foreground/40"}`} />}
+                </span>
+                <span className={`min-w-0 flex-1 truncate text-[13px] ${done || active ? "" : "text-muted-foreground"}`}>{f.name}</span>
+                <span className={`shrink-0 text-[13px] tabular-nums ${active ? "font-semibold text-primary" : "text-muted-foreground"}`}>
+                  {active ? `${pct}%` : formatBytes(f.size)}
+                </span>
+              </div>
+              {active && (
+                <div className="ml-7 mt-1.5 h-0.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${f.name} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+                  <div className="h-full w-full origin-left bg-primary transition-transform duration-200 ease-linear" style={{ transform: `scaleX(${pct / 100})` }} />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {files.length > COLLAPSED_ROWS && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-1 min-h-11 text-[13px] font-semibold text-primary">
+          {all ? "접기" : `${hidden > 0 ? `나머지 ${hidden}개` : "전체"} 보기${finished > 0 ? ` · 완료 ${finished}개` : ""}`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps) {
@@ -30,7 +73,7 @@ export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps
 
   if (!running) {
     return (
-      <div className="mt-3 rounded-[16px] bg-secondary px-4 py-3" aria-live="polite">
+      <div className="mt-2" aria-live="polite">
         <div className="flex items-center gap-3">
           {complete && <Check className="size-4 shrink-0 text-primary" aria-hidden />}
           <div className="min-w-0 flex-1">
@@ -41,11 +84,11 @@ export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps
             {complete && <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{formatBytes(t.total)}</p>}
           </div>
           {t.save && (
-            <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px]" data-testid={`save-${name}`} onClick={() => void t.save?.()}>
+            <Button variant="ghost" size="sm" className="h-11 rounded-full px-3 text-[13px]" data-testid={`save-${name}`} onClick={() => void t.save?.()}>
               다시 저장
             </Button>
           )}
-          <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px] text-muted-foreground" onClick={onClose}>
+          <Button variant="ghost" size="sm" className="h-11 rounded-full px-3 text-[13px] text-muted-foreground" onClick={onClose}>
             닫기
           </Button>
         </div>
@@ -55,20 +98,18 @@ export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps
 
   return (
     <div className="mt-3" aria-live="polite">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate text-[14px] font-semibold">
-          {verb}
-          <span className="ml-2 font-normal text-muted-foreground">{label}</span>
-        </p>
-        <p className="shrink-0 text-[14px] font-semibold text-primary tabular-nums">{t.status === "waiting" ? "" : `${pct}%`}</p>
-      </div>
+      <p className="min-w-0 truncate text-[14px] font-semibold">
+        {verb}
+        <span className="ml-2 font-normal text-muted-foreground">{label}</span>
+      </p>
+      {t.status !== "waiting" && <p className="mt-1 text-[56px] font-extrabold leading-none tracking-[-0.05em] text-primary tabular-nums">{pct}<span className="ml-1 text-2xl font-bold tracking-tight">%</span></p>}
       <div
         role="progressbar"
         aria-label="전송 진행률"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct}
-        className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+        className="mt-3 h-1 overflow-hidden rounded-full bg-muted"
       >
         <div className="h-full w-full origin-left bg-primary transition-transform duration-200 ease-linear will-change-transform" style={{ transform: `scaleX(${pct / 100})` }} />
       </div>
@@ -86,28 +127,7 @@ export function TransferPanel({ name, transfer: t, onClose }: TransferPanelProps
               .filter(Boolean)
               .join(" · ")}
       </p>
-      {t.files.length > 1 && (
-        <ul className="mt-2 max-h-40 divide-y divide-border overflow-auto rounded-[16px] bg-secondary" aria-label="파일 목록">
-          {t.files.map((f, i) => {
-            const st = fileState(f.done, f.size, running);
-            return (
-              <li key={i} className="flex items-center gap-3 px-3 py-2">
-                <span className="grid size-4 shrink-0 place-items-center" aria-hidden>
-                  {st === "done" ? (
-                    <Check className="size-4 text-primary" />
-                  ) : st === "running" ? (
-                    <Loader2 className="size-4 animate-spin text-primary" />
-                  ) : (
-                    <i className="size-1.5 rounded-full bg-muted-foreground/40" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">{f.name}</span>
-                <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">{formatBytes(f.size)}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {t.files.length > 1 && <FileList files={t.files} running={running} />}
     </div>
   );
 }

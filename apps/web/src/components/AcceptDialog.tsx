@@ -33,35 +33,37 @@ export function AcceptDialog({ offer, onAnswer }: { offer: IncomingOffer | null;
         e.preventDefault();
         onAnswer(false);
       }}
-      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-[28px] border-0 bg-card p-6 text-foreground shadow-xl backdrop:bg-black/40"
+      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-[32px] border-0 bg-card p-7 text-foreground shadow-xl backdrop:bg-black/40"
       data-testid="accept-dialog"
     >
       {offer && (
         <>
-          <h2 id="accept-title" className="break-keep text-[22px] font-semibold leading-snug tracking-tight">
+          <h2 id="accept-title" className="break-keep text-[28px] font-bold leading-tight tracking-tight">
             {offer.from}님이 {offer.files.length === 1 ? "파일을" : `파일 ${offer.files.length}개를`} 보내려고 해요
           </h2>
-          <p className="mt-2 text-[13px] text-muted-foreground tabular-nums">
-            보낸 기기 번호 <span className="font-semibold text-foreground">{deviceFingerprint(offer.peerId)}</span> · 총 {formatBytes(total)}
+          <p className="mt-4 text-[13px] text-muted-foreground">보낸 기기 번호</p>
+          <p className="text-[28px] font-bold leading-tight tracking-[0.12em] tabular-nums" data-testid="fingerprint">
+            {deviceFingerprint(offer.peerId)}
           </p>
+          <p className="mt-1 text-[13px] text-muted-foreground">모르는 기기에서 온 파일이면 거절해 주세요. 총 {formatBytes(total)}</p>
           {offer.duplicate && (
-            <p role="alert" className="mt-3 rounded-[16px] bg-destructive/10 px-3 py-2 text-[13px] font-medium text-destructive">
+            <p role="alert" className="mt-3 rounded-2xl bg-destructive/10 px-4 py-3 text-[13px] font-medium text-destructive">
               이름이 같은 기기가 근처에 더 있어요. 받기 전에 기기 번호를 확인해 주세요.
             </p>
           )}
-          <ul className="mt-4 max-h-64 divide-y divide-border overflow-auto rounded-[16px] bg-secondary" aria-label="받을 파일">
+          <ul className="mt-5 max-h-64 overflow-auto" aria-label="받을 파일">
             {offer.files.map((f, i) => (
-              <li key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 text-[14px]">
+              <li key={i} className="flex items-center justify-between gap-3 py-2 text-[15px]">
                 <span className="min-w-0 break-all">{safeName(f.path)}</span>
                 <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{formatBytes(f.size)}</span>
               </li>
             ))}
           </ul>
           <div className="mt-6 flex justify-end gap-2">
-            <Button variant="secondary" autoFocus className="h-11 rounded-full px-6 text-[15px]" onClick={() => onAnswer(false)}>
+            <Button variant="ghost" autoFocus className="h-12 rounded-full px-6 text-[16px] text-muted-foreground" onClick={() => onAnswer(false)}>
               거절
             </Button>
-            <Button className="h-11 rounded-full px-6 text-[15px]" onClick={() => onAnswer(true)}>
+            <Button className="h-12 rounded-full px-8 text-[16px] font-semibold" onClick={() => onAnswer(true)}>
               받기
             </Button>
           </div>
