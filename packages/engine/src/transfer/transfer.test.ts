@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCK_SIZE, FLAG_ZSTD, MAX_PAYLOAD_BYTES, decodeFrame, encodeFrame, type TransferMsg } from "@radius/protocol";
+import { BLOCK_SIZE, FLAG_ZSTD, MAX_MESSAGE_BYTES, MAX_PAYLOAD_BYTES, decodeFrame, encodeFrame, type TransferMsg } from "@radius/protocol";
 import { bytesEqual } from "./hash";
 import { MAX_INFLIGHT_BLOCKS, Receiver } from "./receiver";
 import { Sender, type SendFile } from "./sender";
@@ -86,6 +86,8 @@ function harness(
     corrupt?: (frame: ArrayBuffer, n: number) => ArrayBuffer;
     decision?: "accept" | "declined" | "no_space";
     highWatermark?: number;
+    /** Browser semantics: waitDrain resolves at once while the buffer is at or under this. */
+    lowThreshold?: number;
     ramp?: boolean;
     sink?: MemSink;
     senderCodec?: Codec;
@@ -124,7 +126,10 @@ function harness(
       return true;
     },
     sendControl: toReceiver,
-    waitDrain: (c) => new Promise<void>((r) => drains[c]!.push(r)),
+    waitDrain: (c) =>
+      opts.lowThreshold !== undefined && buffered[c]! <= opts.lowThreshold
+        ? Promise.resolve()
+        : new Promise<void>((r) => drains[c]!.push(r)),
     waitReady: () => Promise.resolve(),
   };
   ref.receiver = new Receiver({
@@ -242,6 +247,13 @@ describe("transfer", () => {
     await h.sender.result;
     expect(h.perChannel.every((n) => n > 0)).toBe(true);
     expect(h.maxBuffered).toBeLessThanOrEqual(hw + MAX_PAYLOAD_BYTES + 16);
+  });
+
+  it("does not spin when the high watermark equals the channel low threshold", async () => {
+    const data = pattern(BLOCK_SIZE, 4);
+    const h = harness([{ path: "a", source: new MemSource(data) }], { highWatermark: MAX_MESSAGE_BYTES, lowThreshold: MAX_MESSAGE_BYTES });
+    h.sender.start();
+    expect(await h.sender.result).toEqual({ status: "complete" });
   });
 
   it("completes with the start-up ramp enabled", async () => {
